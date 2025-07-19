@@ -63,7 +63,7 @@ If you use IM2Deep within the context of [(TI)MS<sup>2</sup>Rescore](https://git
 In other cases, please cite the following:
 > **Collisional cross-section prediction for multiconformational peptide ions with IM2Deep.**
 > Robbe Devreese, Alireza Nameni, Arthur Declercq, Emmy Terryn, Ralf Gabriels, Francis Impens, Kris Gevaert, Lennart Martens, Robbin Bouwmeester.
-> _bioRXiv_ (2025) [doi:10.1101/2025.02.18.638865v1](https://www.biorxiv.org/content/10.1101/2025.02.18.638865v1)
+> _Anal. Chem._ (2025) [doi:10.1021/acs.analchem.5c01142](https://pubs.acs.org/doi/10.1021/acs.analchem.5c01142)
 
 
 
