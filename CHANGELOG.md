@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - This CHANGELOG file
 - Comprehensive documentation with API reference, development guide, and tutorial
-- Unit test suite with pytest framework
 - Enhanced error handling with custom exceptions
 - Input validation throughout the codebase
 - Type hints for better code clarity
@@ -30,9 +29,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Memory management improvements
 - Edge cases in CCS/ion mobility conversions
 - Calibration edge cases with insufficient data
-
-### Testing
-- Added unit tests for core functionality
-- Added integration tests
-- Added test coverage reporting
-- Added CI/CD configuration examples
