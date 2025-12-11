@@ -197,7 +197,7 @@ def _write_output_file(
 
 def predict_ccs(
     psm_list_pred: PSMList,
-    psm_list_cal: Optional[PSMList] = None,
+    psm_list_cal: Optional[Union[PSMList, pd.DataFrame]] = None,
     file_reference: Optional[Union[str, Path]] = None,
     output_file: Optional[Union[str, Path]] = None,
     model_name: str = "tims",
@@ -222,8 +222,10 @@ def predict_ccs(
     psm_list_pred : PSMList
         PSM list containing peptides for CCS prediction. Each PSM should contain
         a valid peptidoform with sequence and modifications.
-    psm_list_cal : PSMList, optional
-        PSM list for calibration with observed CCS values in metadata.
+    psm_list_cal : PSMList or pd.DataFrame, optional
+        PSM list or DataFrame for calibration with observed CCS values.
+        If PSMList: CCS values should be in metadata with key "CCS".
+        If DataFrame: should have "ccs_observed" column.
         Required for calibration. Default is None (no calibration).
     file_reference : str or Path, optional
         Path to reference dataset file for calibration. Default uses built-in
@@ -356,10 +358,27 @@ def predict_ccs(
     if psm_list_cal is not None:
         try:
             LOGGER.info("Applying calibration...")
-            psm_list_cal_df = psm_list_cal.to_dataframe()
-            psm_list_cal_df["ccs_observed"] = psm_list_cal_df["metadata"].apply(
-                lambda x: float(x.get("CCS")) if x and "CCS" in x else None
-            )
+            
+            # Handle both PSMList and DataFrame input
+            if isinstance(psm_list_cal, pd.DataFrame):
+                # Input is already a DataFrame with ccs_observed column
+                psm_list_cal_df = psm_list_cal.copy()
+                if "ccs_observed" not in psm_list_cal_df.columns:
+                    raise IM2DeepError(
+                        "DataFrame calibration data must contain 'ccs_observed' column"
+                    )
+            else:
+                # Input is PSMList, extract CCS from metadata
+                ccs_values = []
+                for psm in psm_list_cal:
+                    if psm.metadata and "CCS" in psm.metadata:
+                        ccs_values.append(float(psm.metadata["CCS"]))
+                    else:
+                        ccs_values.append(None)
+                
+                # Convert to DataFrame and add CCS values
+                psm_list_cal_df = psm_list_cal.to_dataframe()
+                psm_list_cal_df["ccs_observed"] = ccs_values
 
             # Filter out entries without CCS values
             psm_list_cal_df = psm_list_cal_df[psm_list_cal_df["ccs_observed"].notnull()]

@@ -36,7 +36,7 @@ License:
     Apache License 2.0
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # Import main functionality for easier access
 from im2deep.im2deep import predict_ccs
