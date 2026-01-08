@@ -18,14 +18,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 requires-python = ">=3.10"
-dependencies = [
-    "click",
-    "deeplc<4",
-    "psm_utils",
-    "pandas",
-    "numpy==1.26.0",
-    "rich",
-]
+dependencies = ["click", "deeplc<4", "psm_utils", "pandas", "numpy", "rich"]
 
 [project.optional-dependencies]
 dev = [
@@ -35,7 +28,7 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
     "mypy>=1.0",
-    "pre-commit>=3.0"
+    "pre-commit>=3.0",
 ]
 docs = [
     "sphinx>=6.0",
@@ -45,11 +38,9 @@ docs = [
     "toml>=0.10",
     "semver>=2.13",
     "sphinx_rtd_theme>=1.2",
-    "sphinx-autobuild>=2021.3"
+    "sphinx-autobuild>=2021.3",
 ]
-er = [
-    "im2deeptrainer", 
-    "torch==2.3.0"]
+er = ["im2deeptrainer", "torch==2.3.0"]
 
 [project.urls]
 GitHub = "https://github.com/CompOmics/IM2Deep"
@@ -63,7 +54,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]
-version = {attr = "im2deep.__version__"}
+version = { attr = "im2deep.__version__" }
 
 [tool.isort]
 profile = "black"
@@ -105,40 +96,23 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = [
-    "deeplc.*",
-    "torch.*",
-    "im2deeptrainer.*",
-    "psm_utils.*"
-]
+module = ["deeplc.*", "torch.*", "im2deeptrainer.*", "psm_utils.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = [
-    "-ra",
-    "--strict-markers",
-    "--strict-config"
-]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
 testpaths = ["tests"]
-filterwarnings = [
-    "error",
-    "ignore::UserWarning",
-    "ignore::DeprecationWarning"
-]
+filterwarnings = ["error", "ignore::UserWarning", "ignore::DeprecationWarning"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests"
+    "unit: marks tests as unit tests",
 ]
 
 [tool.coverage.run]
 source = ["im2deep"]
-omit = [
-    "*/tests/*",
-    "*/test_*",
-    "*/__main__.py"
-]
+omit = ["*/tests/*", "*/test_*", "*/__main__.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -151,7 +125,7 @@ exclude_lines = [
     "if 0:",
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod"
+    "@(abc\\.)?abstractmethod",
 ]
 
 [tool.ruff]
@@ -167,7 +141,7 @@ select = [
     "UP", # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long, handled by black
-    "B008",  # do not perform function calls in argument defaults
-    "C901",  # too complex
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
 ]
