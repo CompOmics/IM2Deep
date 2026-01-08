@@ -39,16 +39,13 @@ License:
 __version__ = "1.2.0"
 
 # Import main functionality for easier access
-from im2deep.im2deep import predict_ccs
-from im2deep.calibrate import linear_calibration
+from importlib.metadata import version
 from im2deep.utils import ccs2im, im2ccs
-from im2deep._exceptions import IM2DeepError, CalibrationError
 
+__version__: str = version("im2deep")
 __all__ = [
-    "predict_ccs",
-    "linear_calibration",
+    "predict",
+    "calibrate_and_predict",
     "ccs2im",
     "im2ccs",
-    "IM2DeepError",
-    "CalibrationError",
 ]

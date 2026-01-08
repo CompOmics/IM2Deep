@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from psm_utils.psm_list import PSMList
 
 MULTI_BACKBONE_PATH = (
     Path(__file__).parent / "models" / "TIMS_multi" / "multi_output_backbone.ckpt"
@@ -181,6 +182,12 @@ def ccs2im(
     SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return ((np.sqrt(reduced_mass * (temp + t_diff))) * ccs) / (SUMMARY_CONSTANT * charge)
+
+
+def _validate_psm_list(psm_list: PSMList) -> None:
+    raise NotImplementedError(
+        "This function should be implemented to validate PSMList. Should check for IM or CCS and homogenize"
+    )
 
 
 # Configuration for multi-conformer model
