@@ -13,8 +13,11 @@ Constants:
     MULTI_BACKBONE_PATH: Path to the multi-conformer model backbone
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Union, Any, Dict
+from typing import Any
+
 import numpy as np
 
 MULTI_BACKBONE_PATH = (
@@ -23,13 +26,13 @@ MULTI_BACKBONE_PATH = (
 
 
 def im2ccs(
-    reverse_im: Union[float, np.ndarray],
-    mz: Union[float, np.ndarray],
-    charge: Union[int, np.ndarray],
+    reverse_im: float | np.ndarray,
+    mz: float | np.ndarray,
+    charge: int | np.ndarray,
     mass_gas: float = 28.013,
     temp: float = 31.85,
     t_diff: float = 273.15,
-) -> Union[float, np.ndarray]:
+) -> float | np.ndarray:
     """
     Convert reduced ion mobility to collisional cross section.
 
@@ -103,13 +106,13 @@ def im2ccs(
 
 
 def ccs2im(
-    ccs: Union[float, np.ndarray],
-    mz: Union[float, np.ndarray],
-    charge: Union[int, np.ndarray],
+    ccs: float | np.ndarray,
+    mz: float | np.ndarray,
+    charge: int | np.ndarray,
     mass_gas: float = 28.013,
     temp: float = 31.85,
     t_diff: float = 273.15,
-) -> Union[float, np.ndarray]:
+) -> float | np.ndarray:
     """
     Convert collisional cross section to reduced ion mobility.
 
@@ -181,7 +184,7 @@ def ccs2im(
 
 
 # Configuration for multi-conformer model
-multi_config: Dict[str, Any] = {
+multi_config: dict[str, Any] = {
     "model_name": "IM2DeepMulti",
     "batch_size": 16,
     "learning_rate": 0.0001,
