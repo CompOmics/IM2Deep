@@ -13,6 +13,8 @@ from deeplc._data import DeepLCDataset
 from deeplc.calibration import Calibration
 
 from im2deep.utils import _validate_psm_list
+from im2deep import _model_ops
+from im2deep.calibration import _get_calibration_arrays
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MODEL_NAME = "IM2DeepUni.ckpt"
@@ -113,15 +115,7 @@ def calibrate_and_predict(
         LOGGER.info("Fitting calibration...")
         # Below is probably slower than np.array(psm_list_reference["ion_mobility"], 
         # dtype=np.float32), but it makes more sense to work with CCS? 
-        target_ccs_cal = np.array(
-            [float(psm.metadata["CCS"]) for psm in psm_list_reference],
-            dtype=np.float32,
-        ) 
-        source_ccs_cal = np.array(
-            [float(psm.metadata["CCS"]) for psm in psm_list_cal],
-            dtype=np.float32,
-        )
-        calibration.fit(source_ccs_cal, target_ccs_cal)
+        calibration.fit(psm_list_cal, psm_list_reference)
     else:
         LOGGER.info("Calibration is already fitted, skipping fitting step.")
     
