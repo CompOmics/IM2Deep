@@ -28,32 +28,34 @@ Example:
     >>> predictions = predict_ccs(psm_list, calibration_data, multi=True)
 """
 
+from __future__ import annotations
+
 import logging
+from os import PathLike
 from pathlib import Path
-import sys
-from typing import Optional, Union, List
+from typing import cast
 
 import pandas as pd
 from deeplc import DeepLC
 from psm_utils.psm_list import PSMList
 
+from im2deep._exceptions import IM2DeepError
 from im2deep.calibrate import linear_calibration
 from im2deep.utils import ccs2im
-from im2deep._exceptions import IM2DeepError
 
 LOGGER = logging.getLogger(__name__)
 REFERENCE_DATASET_PATH = Path(__file__).parent / "reference_data" / "reference_ccs.zip"
 
 
-def _validate_inputs(psm_list_pred: PSMList, output_file: Optional[str] = None) -> None:
+def _validate_inputs(psm_list_pred: PSMList, output_file: str | PathLike | None = None) -> None:
     """
     Validate input parameters for prediction.
 
     Parameters
     ----------
-    psm_list_pred : PSMList
+    psm_list_pred
         PSM list for prediction
-    output_file : str, optional
+    output_file
         Output file path
 
     Raises
@@ -67,24 +69,24 @@ def _validate_inputs(psm_list_pred: PSMList, output_file: Optional[str] = None) 
     if len(psm_list_pred) == 0:
         raise IM2DeepError("PSM list for prediction is empty")
 
-    if output_file and not isinstance(output_file, (str, Path)):
-        raise IM2DeepError("output_file must be a string or Path object")
+    if output_file and not isinstance(output_file, (str, PathLike)):
+        raise IM2DeepError("output_file must be a string or PathLike object")
 
 
-def _get_model_paths(model_name: str, use_single_model: bool) -> List[Path]:
+def _get_model_paths(model_name: str, use_single_model: bool) -> list[Path]:
     """
     Get model file paths based on model name and configuration.
 
     Parameters
     ----------
-    model_name : str
+    model_name
         Name of the model ('tims')
-    use_single_model : bool
+    use_single_model
         Whether to use single model or ensemble
 
     Returns
     -------
-    List[Path]
+    list[Path]
         List of model file paths
 
     Raises
@@ -120,9 +122,9 @@ def _get_model_paths(model_name: str, use_single_model: bool) -> List[Path]:
 
 
 def _write_output_file(
-    output_file: str,
+    output_file: str | PathLike,
     psm_list_pred_df: pd.DataFrame,
-    pred_df: Optional[pd.DataFrame] = None,
+    pred_df: pd.DataFrame | None = None,
     ion_mobility: bool = False,
     multi: bool = False,
 ) -> None:
@@ -131,19 +133,24 @@ def _write_output_file(
 
     Parameters
     ----------
-    output_file : str
+    output_file
         Path to output file
-    psm_list_pred_df : pd.DataFrame
+    psm_list_pred_df
         DataFrame with predictions
-    pred_df : pd.DataFrame, optional
+    pred_df
         Multi-conformer predictions
-    ion_mobility : bool
+    ion_mobility
         Whether to output ion mobility instead of CCS
-    multi : bool
+    multi
         Whether multi-conformer predictions are included
     """
+    if multi and pred_df is None:
+        raise IM2DeepError("Multi-conformer predictions requested but pred_df is None")
+    else:
+        pred_df = cast(pd.DataFrame, pred_df)
     try:
         with open(output_file, "w", encoding="utf-8") as f:
+            # TODO: Consider using dictwriter or Pandas to_csv
             if ion_mobility:
                 if multi:
                     f.write(
@@ -155,6 +162,7 @@ def _write_output_file(
                         psm_list_pred_df["predicted_im"],
                         psm_list_pred_df["predicted_im_multi_1"],
                         psm_list_pred_df["predicted_im_multi_2"],
+                        strict=True,
                     ):
                         f.write(f"{peptidoform},{charge},{IM_single},{IM_multi_1},{IM_multi_2}\n")
                 else:
@@ -163,6 +171,7 @@ def _write_output_file(
                         psm_list_pred_df["peptidoform"],
                         psm_list_pred_df["charge"],
                         psm_list_pred_df["predicted_im"],
+                        strict=True,
                     ):
                         f.write(f"{peptidoform},{charge},{IM}\n")
             else:
@@ -176,6 +185,7 @@ def _write_output_file(
                         psm_list_pred_df["predicted_ccs"],
                         pred_df["predicted_ccs_multi_1"],
                         pred_df["predicted_ccs_multi_2"],
+                        strict=True,
                     ):
                         f.write(
                             f"{peptidoform},{charge},{CCS_single},{CCS_multi_1},{CCS_multi_2}\n"
@@ -186,31 +196,32 @@ def _write_output_file(
                         psm_list_pred_df["peptidoform"],
                         psm_list_pred_df["charge"],
                         psm_list_pred_df["predicted_ccs"],
+                        strict=True,
                     ):
                         f.write(f"{peptidoform},{charge},{CCS}\n")
 
         LOGGER.info(f"Results written to: {output_file}")
 
-    except IOError as e:
-        raise IM2DeepError(f"Failed to write output file {output_file}: {e}")
+    except OSError as e:
+        raise IM2DeepError(f"Failed to write output file {output_file}: {e}") from e
 
 
 def predict_ccs(
     psm_list_pred: PSMList,
-    psm_list_cal: Optional[Union[PSMList, pd.DataFrame]] = None,
-    file_reference: Optional[Union[str, Path]] = None,
-    output_file: Optional[Union[str, Path]] = None,
+    psm_list_cal: PSMList | pd.DataFrame | None = None,
+    file_reference: PathLike | None = None,
+    output_file: PathLike | None = None,
     model_name: str = "tims",
     multi: bool = False,
     calibrate_per_charge: bool = True,
     use_charge_state: int = 2,
     use_single_model: bool = True,
-    n_jobs: Optional[int] = None,
+    n_jobs: int | None = None,
     write_output: bool = False,
     ion_mobility: bool = False,
-    pred_df: Optional[pd.DataFrame] = None,
-    cal_df: Optional[pd.DataFrame] = None,
-) -> Union[pd.Series, pd.DataFrame]:
+    pred_df: pd.DataFrame | None = None,
+    cal_df: pd.DataFrame | None = None,
+) -> pd.Series | pd.DataFrame:
     """
     Predict CCS values for peptides using IM2Deep models.
 
@@ -219,42 +230,42 @@ def predict_ccs(
 
     Parameters
     ----------
-    psm_list_pred : PSMList
+    psm_list_pred
         PSM list containing peptides for CCS prediction. Each PSM should contain
         a valid peptidoform with sequence and modifications.
-    psm_list_cal : PSMList or pd.DataFrame, optional
+    psm_list_cal
         PSM list or DataFrame for calibration with observed CCS values.
         If PSMList: CCS values should be in metadata with key "CCS".
         If DataFrame: should have "ccs_observed" column.
         Required for calibration. Default is None (no calibration).
-    file_reference : str or Path, optional
+    file_reference
         Path to reference dataset file for calibration. Default uses built-in
         reference dataset.
-    output_file : str or Path, optional
+    output_file
         Path to write output predictions. If None, no file is written.
-    model_name : str, default "tims"
+    model_name
         Name of the model to use. Currently only "tims" is supported.
-    multi : bool, default False
+    multi
         Whether to include multi-conformer predictions. Requires optional
         dependencies (torch, im2deeptrainer).
-    calibrate_per_charge : bool, default True
+    calibrate_per_charge
         Whether to perform calibration per charge state. If False, uses
         global calibration with specified charge state.
-    use_charge_state : int, default 2
+    use_charge_state
         Charge state to use for global calibration when calibrate_per_charge=False.
         Should be in range [2,4] for best results.
-    use_single_model : bool, default True
+    use_single_model
         Whether to use a single model (faster) or ensemble of models (potentially
         more accurate). Single model recommended for most applications.
-    n_jobs : int, optional
+    n_jobs
         Number of parallel jobs for model prediction. If None, uses all available CPUs.
-    write_output : bool, default False
+    write_output
         Whether to write predictions to output file.
-    ion_mobility : bool, default False
+    ion_mobility
         Whether to output ion mobility (1/K0) instead of CCS values.
-    pred_df : pd.DataFrame, optional
+    pred_df
         Pre-computed prediction DataFrame (used internally).
-    cal_df : pd.DataFrame, optional
+    cal_df
         Pre-computed calibration DataFrame (used internally).
 
     Returns
@@ -279,8 +290,8 @@ def predict_ccs(
     5. Convert to ion mobility if requested
     6. Write output file if requested
 
-    Calibration is highly recommended for accurate predictions and requires
-    a set of peptides with known CCS values that overlap with the reference dataset.
+    Calibration is highly recommended for accurate predictions and requires a set of peptides with
+    known CCS values that overlap with the reference dataset.
 
     Examples
     --------
@@ -320,7 +331,7 @@ def predict_ccs(
         reference_dataset = pd.read_csv(file_reference)
         LOGGER.debug(f"Loaded reference dataset with {len(reference_dataset)} entries")
     except Exception as e:
-        raise IM2DeepError(f"Failed to load reference dataset from {file_reference}: {e}")
+        raise IM2DeepError(f"Failed to load reference dataset from {file_reference}: {e}") from e
 
     if reference_dataset.empty:
         raise IM2DeepError("Reference dataset is empty")
@@ -329,7 +340,7 @@ def predict_ccs(
     try:
         path_model_list = _get_model_paths(model_name, use_single_model)
     except Exception as e:
-        raise IM2DeepError(f"Failed to load models: {e}")
+        raise IM2DeepError(f"Failed to load models: {e}") from e
 
     # Initialize DeepLC for CCS prediction
     try:
@@ -338,7 +349,7 @@ def predict_ccs(
         preds = dlc.make_preds(psm_list=psm_list_pred, calibrate=False)
         LOGGER.info(f"CCS values predicted for {len(preds)} peptides.")
     except Exception as e:
-        raise IM2DeepError(f"CCS prediction failed: {e}")
+        raise IM2DeepError(f"CCS prediction failed: {e}") from e
 
     if len(preds) == 0:
         raise IM2DeepError("No predictions generated")
@@ -351,14 +362,14 @@ def predict_ccs(
             lambda x: x.precursor_charge
         )
     except Exception as e:
-        raise IM2DeepError(f"Failed to process predictions: {e}")
+        raise IM2DeepError(f"Failed to process predictions: {e}") from e
 
     # Apply calibration if calibration data provided
     pred_df = None
     if psm_list_cal is not None:
         try:
             LOGGER.info("Applying calibration...")
-            
+
             # Handle both PSMList and DataFrame input
             if isinstance(psm_list_cal, pd.DataFrame):
                 # Input is already a DataFrame with ccs_observed column
@@ -375,7 +386,7 @@ def predict_ccs(
                         ccs_values.append(float(psm.metadata["CCS"]))
                     else:
                         ccs_values.append(None)
-                
+
                 # Convert to DataFrame and add CCS values
                 psm_list_cal_df = psm_list_cal.to_dataframe()
                 psm_list_cal_df["ccs_observed"] = ccs_values
@@ -413,37 +424,40 @@ def predict_ccs(
                 use_charge_state,
             )
             LOGGER.info("Multiconformational predictions completed.")
-        except ImportError:
+        except ImportError as e:
             raise IM2DeepError(
                 "Multi-conformer prediction requires optional dependencies. "
                 "Please install with: pip install 'im2deep[er]'"
-            )
+            ) from e
         except Exception as e:
-            raise IM2DeepError(f"Multi-conformer prediction failed: {e}")
+            raise IM2DeepError(f"Multi-conformer prediction failed: {e}") from e
 
     # Convert to ion mobility if requested
     if ion_mobility:
         try:
+            mz_array = psm_list_pred_df["peptidoform"].apply(lambda x: x.theoretical_mz).to_numpy()
+            charge_array = psm_list_pred_df["charge"].to_numpy()
+
             psm_list_pred_df["predicted_im"] = ccs2im(
-                psm_list_pred_df["predicted_ccs"],
-                psm_list_pred_df["peptidoform"].apply(lambda x: x.theoretical_mz),
-                psm_list_pred_df["charge"],
+                psm_list_pred_df["predicted_ccs"].to_numpy(),
+                mz_array,
+                charge_array,
             )
 
             if multi and pred_df is not None:
                 psm_list_pred_df["predicted_im_multi_1"] = ccs2im(
-                    pred_df["predicted_ccs_multi_1"],
-                    psm_list_pred_df["peptidoform"].apply(lambda x: x.theoretical_mz),
-                    psm_list_pred_df["charge"],
+                    pred_df["predicted_ccs_multi_1"].to_numpy(),
+                    mz_array,
+                    charge_array,
                 )
                 psm_list_pred_df["predicted_im_multi_2"] = ccs2im(
-                    pred_df["predicted_ccs_multi_2"],
-                    psm_list_pred_df["peptidoform"].apply(lambda x: x.theoretical_mz),
-                    psm_list_pred_df["charge"],
+                    pred_df["predicted_ccs_multi_2"].to_numpy(),
+                    mz_array,
+                    charge_array,
                 )
 
         except Exception as e:
-            raise IM2DeepError(f"Ion mobility conversion failed: {e}")
+            raise IM2DeepError(f"Ion mobility conversion failed: {e}") from e
 
     # Write output file if requested
     if write_output and output_file:

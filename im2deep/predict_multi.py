@@ -28,17 +28,19 @@ Note:
     pip install 'im2deep[er]'
 """
 
-from pathlib import Path
+from __future__ import annotations
+
 import logging
-from typing import Dict, Optional, Union
+from pathlib import Path
+from typing import cast
+
+import numpy as np
+import pandas as pd
 
 try:
     import torch
-    import pandas as pd
-    import numpy as np
-
+    from im2deeptrainer.extract_data import _get_matrices  # TODO: Should be public function?
     from im2deeptrainer.model import IM2DeepMultiTransfer
-    from im2deeptrainer.extract_data import _get_matrices
     from im2deeptrainer.utils import FlexibleLossSorted
 
     TORCH_AVAILABLE = True
@@ -50,15 +52,12 @@ except ImportError:
     FlexibleLossSorted = None
     TORCH_AVAILABLE = False
 
-    import pandas as pd
-    import numpy as np
-
+from im2deep._exceptions import CalibrationError, IM2DeepError
 from im2deep.utils import multi_config
-from im2deep._exceptions import IM2DeepError, CalibrationError
 
 LOGGER = logging.getLogger(__name__)
-MULTI_CKPT_PATH = Path(__file__).parent / "models" / "TIMS_multi" / "multi_output.ckpt"
-REFERENCE_DATASET_PATH = Path(__file__).parent / "reference_data" / "multi_reference_ccs.gz"
+MULTI_CKPT_PATH: Path = Path(__file__).parent / "models" / "TIMS_multi" / "multi_output.ckpt"
+REFERENCE_DATASET_PATH: Path = Path(__file__).parent / "reference_data" / "multi_reference_ccs.gz"
 
 
 def _validate_multi_inputs(df_cal: pd.DataFrame, reference_dataset: pd.DataFrame) -> None:
@@ -67,9 +66,9 @@ def _validate_multi_inputs(df_cal: pd.DataFrame, reference_dataset: pd.DataFrame
 
     Parameters
     ----------
-    df_cal : pd.DataFrame
+    df_cal
         Calibration dataset
-    reference_dataset : pd.DataFrame
+    reference_dataset
         Reference dataset
 
     Raises
@@ -106,13 +105,13 @@ def get_ccs_shift_multi(
 
     Parameters
     ----------
-    df_cal : pd.DataFrame
+    df_cal
         Calibration peptides with observed CCS values. Must contain columns:
         'seq', 'modifications', 'charge', 'ccs_observed'
-    reference_dataset : pd.DataFrame
+    reference_dataset
         Reference dataset with known CCS values. Must contain columns:
         'seq', 'modifications', 'charge', 'CCS'
-    use_charge_state : int, default 2
+    use_charge_state
         Charge state to use for CCS shift calculation. Recommended range [2,4].
 
     Returns
@@ -144,7 +143,7 @@ def get_ccs_shift_multi(
         raise CalibrationError(f"Invalid charge state {use_charge_state}")
 
     LOGGER.debug(
-        f"Using charge state {use_charge_state} for calibration of multiconformer predictions."
+        f"Using charge state {use_charge_state} for calibration of multi-conformer predictions."
     )
 
     # Filter by charge state
@@ -195,7 +194,7 @@ def get_ccs_shift_multi(
 
 def get_ccs_shift_per_charge_multi(
     df_cal: pd.DataFrame, reference_dataset: pd.DataFrame
-) -> Dict[int, float]:
+) -> dict[int, float]:
     """
     Calculate CCS shift factors per charge state for multi-conformer predictions.
 
@@ -205,10 +204,10 @@ def get_ccs_shift_per_charge_multi(
 
     Parameters
     ----------
-    df_cal : pd.DataFrame
+    df_cal
         Calibration peptides with observed CCS values. Must contain columns:
         'seq', 'modifications', 'charge', 'ccs_observed'
-    reference_dataset : pd.DataFrame
+    reference_dataset
         Reference dataset with known CCS values. Must contain columns:
         'seq', 'modifications', 'charge', 'CCS'
 
@@ -281,8 +280,8 @@ def calculate_ccs_shift_multi(
     df_cal: pd.DataFrame,
     reference_dataset: pd.DataFrame,
     per_charge: bool = True,
-    use_charge_state: Optional[int] = None,
-) -> Union[float, Dict[int, float]]:
+    use_charge_state: int | None = None,
+) -> float | dict[int, float]:
     """
     Calculate CCS shift factors for multi-conformer predictions with validation.
 
@@ -292,19 +291,19 @@ def calculate_ccs_shift_multi(
 
     Parameters
     ----------
-    df_cal : pd.DataFrame
+    df_cal
         Calibration peptides with observed CCS values.
-    reference_dataset : pd.DataFrame
+    reference_dataset
         Reference dataset with known CCS values.
-    per_charge : bool, default True
+    per_charge
         Whether to calculate shift factors per charge state.
-    use_charge_state : int, optional
+    use_charge_state
         Charge state for global calibration when per_charge=False.
         Default is 2 if not specified.
 
     Returns
     -------
-    Union[float, Dict[int, float]]
+    float | dict[int, float]
         If per_charge=True: Dictionary of shift factors per charge
         If per_charge=False: Single global shift factor
 
@@ -367,7 +366,7 @@ def linear_calibration_multi(
     df_cal: pd.DataFrame,
     reference_dataset: pd.DataFrame,
     per_charge: bool = True,
-    use_charge_state: Optional[int] = None,
+    use_charge_state: int | None = None,
 ) -> pd.DataFrame:
     """
     Calibrate multi-conformer CCS predictions using linear calibration.
@@ -378,16 +377,16 @@ def linear_calibration_multi(
 
     Parameters
     ----------
-    df_pred : pd.DataFrame
+    df_pred
         DataFrame with multi-conformer CCS predictions. Must contain columns:
         'predicted_ccs_multi_1', 'predicted_ccs_multi_2', 'peptidoform'
-    df_cal : pd.DataFrame
+    df_cal
         Calibration dataset with observed CCS values.
-    reference_dataset : pd.DataFrame
+    reference_dataset
         Reference dataset for multi-conformer calibration.
-    per_charge : bool, default True
+    per_charge
         Whether to apply calibration per charge state.
-    use_charge_state : int, optional
+    use_charge_state
         Charge state for global calibration when per_charge=False.
 
     Returns
@@ -416,7 +415,7 @@ def linear_calibration_multi(
     ...     pred_df, cal_df, ref_df, per_charge=True
     ... )
     """
-    LOGGER.info("Calibrating multiconformer predictions using linear calibration...")
+    LOGGER.info("Calibrating multi-conformer predictions using linear calibration...")
 
     if df_pred.empty:
         raise CalibrationError("Predictions dataframe is empty")
@@ -431,16 +430,19 @@ def linear_calibration_multi(
 
     try:
         if per_charge:
-            LOGGER.info("Generating general shift factor for multiconformer predictions...")
+            LOGGER.info("Generating general shift factor for multi-conformer predictions...")
             general_shift = calculate_ccs_shift_multi(
                 df_cal, reference_dataset, per_charge=False, use_charge_state=use_charge_state or 2
             )
+            general_shift = cast(float, general_shift)  # per_charge=False returns float
 
-            LOGGER.info("Getting shift factors per charge state for multiconformer...")
+            LOGGER.info("Getting shift factors per charge state for multi-conformer...")
             df_pred["charge"] = df_pred["peptidoform"].apply(lambda x: x.precursor_charge)
             shift_factor_dict = calculate_ccs_shift_multi(
                 df_cal, reference_dataset, per_charge=True
             )
+            # per_charge=True returns dict[int, float]
+            shift_factor_dict = cast(dict[int, float], shift_factor_dict)
 
             # Apply charge-specific shifts with fallback
             df_pred["shift_multi"] = df_pred["charge"].map(shift_factor_dict).fillna(general_shift)
@@ -455,20 +457,21 @@ def linear_calibration_multi(
             shift_factor = calculate_ccs_shift_multi(
                 df_cal, reference_dataset, per_charge=False, use_charge_state=use_charge_state or 2
             )
+            shift_factor = cast(float, shift_factor)  # per_charge=False returns float
             df_pred["predicted_ccs_multi_1"] = df_pred["predicted_ccs_multi_1"] + shift_factor
             df_pred["predicted_ccs_multi_2"] = df_pred["predicted_ccs_multi_2"] + shift_factor
             df_pred["shift_multi"] = shift_factor
 
-        LOGGER.info("Multiconformer predictions calibrated successfully.")
+        LOGGER.info("Multi-conformer predictions calibrated successfully.")
         return df_pred
 
     except Exception as e:
-        raise CalibrationError(f"Multi-conformer calibration failed: {e}")
+        raise CalibrationError(f"Multi-conformer calibration failed: {e}") from e
 
 
 def predict_multi(
     df_pred_psm_list,
-    df_cal: Optional[pd.DataFrame],
+    df_cal: pd.DataFrame | None,
     calibrate_per_charge: bool,
     use_charge_state: int,
 ) -> pd.DataFrame:
@@ -481,13 +484,13 @@ def predict_multi(
 
     Parameters
     ----------
-    df_pred_psm_list : PSMList
+    df_pred_psm_list
         PSM list containing peptides for prediction.
-    df_cal : pd.DataFrame, optional
+    df_cal
         Calibration dataset. If provided, predictions will be calibrated.
-    calibrate_per_charge : bool
+    calibrate_per_charge
         Whether to perform per-charge calibration.
-    use_charge_state : int
+    use_charge_state
         Charge state for global calibration.
 
     Returns
@@ -597,4 +600,4 @@ def predict_multi(
         return df_pred[["predicted_ccs_multi_1", "predicted_ccs_multi_2"]]
 
     except Exception as e:
-        raise IM2DeepError(f"Multi-conformer prediction failed: {e}")
+        raise IM2DeepError(f"Multi-conformer prediction failed: {e}") from e
