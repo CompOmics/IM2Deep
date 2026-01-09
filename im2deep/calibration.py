@@ -50,20 +50,6 @@ class Calibration(ABC):
         ...
 
 
-class IdentityCalibration(Calibration):
-    """No calibration; returns inputs unchanged."""
-
-    @property
-    def is_fitted(self) -> bool:
-        return True
-
-    def fit(self, target: np.ndarray, source: np.ndarray) -> None:  # noqa: ARG002
-        return None
-
-    def transform(self, source: PSMList) -> PSMList:
-        return source
-
-
 class LinearCCSCalibration(Calibration):
     """
     Linear calibration for CCS predictions.
@@ -178,28 +164,10 @@ class LinearCCSCalibration(Calibration):
         The function automatically filters out charges >6 as IM2Deep predictions are not reliable for higher charge states.
         A warning is logged if any peptides are filtered out.
         """
-        # TODO: Implement actual shift calculation logic
         if self.use_charge_state is not None and not 1 <= self.use_charge_state <= 6:
             raise CalibrationError(
                 f"Invalid charge state {self.use_charge_state} for global shift calculation."
             )
-
-        # Filter high charge states (IM2Deep predictions are not reliable for charges >6)
-        original_size = len(source)
-        source_filtered = PSMList(
-            [psm for psm in source if psm.peptidoform.precursor_charge <= 6]
-        ).copy()
-
-        # TODO: needs to be moved outside calibration
-        if len(source_filtered) < original_size:
-            filtered_count = original_size - len(source_filtered)
-            LOGGER.warning(
-                f"Filtered out {filtered_count} PSMs with charge states >6 for shift calculation.\n"
-                f"Predictions are not reliable for z>6."
-            )
-
-        if len(source_filtered) == 0:
-            raise CalibrationError("No PSMs available for shift calculation after filtering.")
 
         if not self.per_charge:
             # Global calibration using specified charge state
@@ -209,12 +177,12 @@ class LinearCCSCalibration(Calibration):
                     "No charge state specified for global calibration. Using default charge state 2 for global shift calculation."
                 )
 
-            shift_factor = self._compute_ccs_shift(source_filtered, target, self.use_charge_state)
+            shift_factor = self._compute_ccs_shift(source, target, self.use_charge_state)
             LOGGER.debug(f"Global CCS shift factor: {shift_factor:.3f}")
             return shift_factor
         else:
             # Per-charge calibration
-            shift_factor_dict = self._compute_ccs_shift_per_charge(source_filtered, target)
+            shift_factor_dict = self._compute_ccs_shift_per_charge(source, target)
             # For any missing charge states, assign general shift
             for charge in range(1, 7):
                 if charge not in shift_factor_dict:

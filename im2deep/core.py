@@ -9,12 +9,12 @@ from pathlib import Path
 import numpy as np
 from psm_utils.psm_list import PSMList
 import torch
-from deeplc._data import DeepLCDataset
+from deeplc.data import DeepLCDataset
 from deeplc.calibration import Calibration
 
-from im2deep.utils import _validate_psm_list
+from im2deep.utils import validate_psm_list
 from im2deep import _model_ops
-from im2deep.calibration import _get_calibration_arrays
+from im2deep.calibration import LinearCCSCalibration
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MODEL_NAME = "IM2DeepUni.ckpt"
@@ -50,12 +50,12 @@ def predict(
 
     """
     LOGGER.info("Predicting CCS values using IM2Deep.")
-    _validate_psm_list(psm_list)
+    psm_list = validate_psm_list(psm_list)
     return _model_ops.predict(
         model=model or DEFAULT_MODEL if not multi else DEFAULT_MULTI_MODEL,
         data=DeepLCDataset.from_psm_list(psm_list, add_ccs_features=True),
         **(predict_kwargs or {}),
-        # TODO: check if "backbone" argument is needed
+        # TODO: check if "backbone" argument is needed for multi
     ).numpy()
 
 
@@ -80,7 +80,7 @@ def calibrate_and_predict(
     model
         Trained model or path to model file. If None, the default IM2Deep model is used.
     calibration
-        Calibration object to use for calibration. If None, #TODO: name is applied.
+        Calibration object to use for calibration. If None, LinearCCSCalibration is applied.
     predict_kwargs
         Additional keyword arguments to pass to the prediction function.
 
@@ -92,11 +92,11 @@ def calibrate_and_predict(
     """
     # Predict initial CCS values
     LOGGER.info("Predicting uncalibrated CCS values...")
-    _validate_psm_list(psm_list)
-    _validate_psm_list(psm_list_cal)
-    _validate_psm_list(psm_list_reference)
+    psm_list = validate_psm_list(psm_list)
+    psm_list_cal = validate_psm_list(psm_list_cal, needs_target=True)
+    # TODO: the reference dataset is a csv, so we need to convert to PSMList somewhere
+    psm_list_reference = validate_psm_list(psm_list_reference, needs_target=True)
     predicted_ccs = predict(
-        psm_list,
         model=model,
         multi=multi,
         predict_kwargs=predict_kwargs,
@@ -104,25 +104,29 @@ def calibrate_and_predict(
 
     # Perform calibration
     if calibration is None:
-        LOGGER.info("No calibration provided, using #TODO: name by default.")
-        calibration = #TODO: name()
+        LOGGER.info("No calibration provided, using LinearCCSCalibration by default.")
+        calibration = LinearCCSCalibration()
     elif not isinstance(calibration, Calibration):
         raise TypeError(
             f"Calibration must be an instance of Calibration, got {type(calibration)} instead."
         )
-    
+
     if not calibration.is_fitted:
         LOGGER.info("Fitting calibration...")
-        # Below is probably slower than np.array(psm_list_reference["ion_mobility"], 
-        # dtype=np.float32), but it makes more sense to work with CCS? 
-        calibration.fit(psm_list_cal, psm_list_reference)
+        if any(psm_list_cal["is_decoy"]):
+            LOGGER.warning(
+                "Calibration PSM list contains decoy PSMs. "
+                "These will be ignored during calibration fitting."
+            )
+        calibration.fit(psm_list_reference, psm_list_cal)
     else:
         LOGGER.info("Calibration is already fitted, skipping fitting step.")
-    
+
     # Apply calibration to predictions
     calibrated_ccs = calibration.transform(predicted_ccs)
 
     return calibrated_ccs
+
 
 def train(
     psm_list,
@@ -149,5 +153,6 @@ def train(
     raise NotImplementedError(
         "Training functionality is not yet implemented for IM2Deep. Use the IM2DeepTrainer package instead."
     )
+
 
 # TODO: finetune and finetune_and_predict functions?

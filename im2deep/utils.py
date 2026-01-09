@@ -17,13 +17,18 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import logging
 
 import numpy as np
 from psm_utils.psm_list import PSMList
 
+from im2deep._exceptions import IM2DeepError
+
 MULTI_BACKBONE_PATH = (
     Path(__file__).parent / "models" / "TIMS_multi" / "multi_output_backbone.ckpt"
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 def im2ccs(
@@ -184,10 +189,56 @@ def ccs2im(
     return ((np.sqrt(reduced_mass * (temp + t_diff))) * ccs) / (SUMMARY_CONSTANT * charge)
 
 
-def _validate_psm_list(psm_list: PSMList) -> None:
-    raise NotImplementedError(
-        "This function should be implemented to validate PSMList. Should check for IM or CCS and homogenize"
-    )
+def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
+    """
+    Validate that the PSM list contains necessary fields. And homogenizes the data.
+    Also removes entries with charge state higher than 6.
+
+    Parameters
+    ----------
+    psm_list : PSMList
+        The PSM list to validate.
+    needs_target : bool, optional
+        Whether target IM or CCS values are required. Default is False.
+    """
+    # Filter high charge states (IM2Deep predictions are not reliable for charges >6)
+    original_size = len(psm_list)
+    psm_list_filtered = PSMList(
+        [psm for psm in psm_list if psm.peptidoform.precursor_charge <= 6]
+    ).copy()
+
+    if len(psm_list_filtered) < original_size:
+        filtered_count = original_size - len(psm_list_filtered)
+        LOGGER.warning(
+            f"Filtered out {filtered_count} PSMs with charge states >6 for shift calculation.\n"
+            f"Predictions are not reliable for z>6."
+        )
+
+    if len(psm_list_filtered) == 0:
+        raise IM2DeepError("No PSMs present in provided PSMLists.")
+
+    all_has_targets = True
+    if needs_target:
+        # Check if PSMs have either ion_mobility or CCS
+        all_has_targets = all(
+            psm.ion_mobility is not None or psm.metadata.get("CCS") is not None
+            for psm in psm_list_filtered
+        )
+
+        # If ion_mobility is present, convert to CCS
+        for psm in psm_list_filtered:
+            if psm.ion_mobility is not None and psm.metadata.get("CCS") is None:
+                psm.metadata["CCS"] = im2ccs(
+                    psm.ion_mobility,
+                    psm.peptidoform.theoretical_mz,
+                    psm.peptidoform.precursor_charge,
+                )
+
+    if needs_target and not all_has_targets:
+        raise IM2DeepError("PSMList must contain 'ion_mobility' or 'CCS' metadata for all PSMs.")
+
+    else:
+        return psm_list_filtered
 
 
 # Configuration for multi-conformer model
