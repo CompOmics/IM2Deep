@@ -58,9 +58,33 @@ from psm_utils.psm_list import PSMList
 from rich.logging import RichHandler
 
 from im2deep import __version__, core
+from im2deep.utils import parse_input, build_credits, check_optional_dependencies
 
 console = Console()
 LOGGER = logging.getLogger(__name__)
+
+
+class DefaultCommandGroup(click.Group):
+    """Custom Click Group that invokes a default command if no subcommand is specified."""
+
+    def __init__(self, *args, **kwargs):
+        self.default_command = kwargs.pop("default_command", None)
+        super().__init__(*args, **kwargs)
+
+    def resolve_command(self, ctx, args):
+        try:
+            # Try to resolve the command normally
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            # If it fails and we have a default command, use that
+            if self.default_command and args:
+                # Get the default command
+                cmd_name = self.default_command
+                cmd = self.commands.get(cmd_name)
+                if cmd:
+                    return cmd_name, cmd, args
+            # Re-raise the error if no default or command not found
+            raise
 
 
 # TODO: move to utils
@@ -91,151 +115,30 @@ def setup_logging(passed_level: str) -> None:
             f"Invalid log level: {passed_level}. " f"Should be one of {list(log_mapping.keys())}"
         )
 
-    logging.basicConfig(
-        level=log_mapping[passed_level.lower()],
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[
-            RichHandler(rich_tracebacks=True, console=console, show_level=True, show_path=False)
-        ],
+    # Get the root logger and set its level
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_mapping[passed_level.lower()])
+
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add Rich handler
+    rich_handler = RichHandler(
+        rich_tracebacks=True, console=console, show_level=True, show_path=True
     )
+    rich_handler.setLevel(log_mapping[passed_level.lower()])
+    root_logger.addHandler(rich_handler)
 
-
-# TODO: move to utils
-def check_optional_dependencies() -> None:
-    """
-    Check if optional dependencies for multi-conformer prediction are available.
-
-    Raises
-    ------
-    SystemExit
-        If required dependencies are missing
-    """
-    try:
-        import torch
-        import im2deeptrainer
-
-        LOGGER.debug("Optional dependencies for multi-conformer prediction found")
-    except ImportError:
-        LOGGER.error(
-            "Multi-conformer prediction requires optional dependencies.\n"
-            "Please install IM2Deep with optional dependencies:\n"
-            "pip install 'im2deep[er]'"
-        )
-        sys.exit(1)
-
-
-# TODO: move to utils
-def _validate_file_format(file_path: str, file_type: str = "input") -> bool:
-    """
-    Validate file format and accessibility.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to file to validate
-    file_type : str
-        Type of file for error messages
-
-    Returns
-    -------
-    bool
-        True if file is valid
-
-    Raises
-    ------
-    click.ClickException
-        If file validation fails
-    """
-    path = Path(file_path)
-
-    if not path.exists():
-        raise click.ClickException(f"{file_type.capitalize()} file not found: {file_path}")
-
-    if not path.is_file():
-        raise click.ClickException(f"{file_type.capitalize()} path is not a file: {file_path}")
-
-    if path.suffix.lower() not in [".csv", ".txt", ".tsv"]:
-        LOGGER.warning(f"Unexpected file extension for {file_type} file: {path.suffix}")
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            first_line = f.readline().strip()
-            if not first_line:
-                raise click.ClickException(f"{file_type.capitalize()} file appears to be empty")
-    except Exception as e:
-        raise click.ClickException(f"Error reading {file_type} file: {e}")
-
-    return True
-
-
-# TODO: move to more appropriate module
-def _parse_csv_input(file_path: str, file_type: str = "prediction") -> PSMList:
-    """
-    Parse CSV input file into PSMList.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to CSV file
-    file_type : str
-        Type of file for error messages
-
-    Returns
-    -------
-    PSMList
-        Parsed PSM data
-
-    Raises
-    ------
-    click.ClickException
-        If parsing fails
-    """
-    try:
-        df = pd.read_csv(file_path)
-        df = df.fillna("")
-
-        required_cols = ["seq", "modifications", "charge"]
-        missing_cols = set(required_cols) - set(df.columns)
-        if missing_cols:
-            raise click.ClickException(
-                f"Missing required columns in {file_type} file: {missing_cols}\n"
-                f"Required columns: {required_cols}"
-            )
-
-        if file_type == "calibration" and "CCS" not in df.columns:
-            raise click.ClickException("Calibration file must contain 'CCS' column")
-
-        list_of_psms = []
-        for idx, row in df.iterrows():
-            try:
-                peptidoform = peprec_to_proforma(row["seq"], row["modifications"], row["charge"])
-                metadata = {}
-                if file_type == "calibration" and "CCS" in row:
-                    metadata["CCS"] = float(row["CCS"])
-
-                psm = PSM(peptidoform=peptidoform, metadata=metadata, spectrum_id=idx)
-                list_of_psms.append(psm)
-            except Exception as e:
-                LOGGER.warning(f"Skipping row {idx} due to parsing error: {e}")
-                continue
-
-        if not list_of_psms:
-            raise click.ClickException(f"No valid peptides found in {file_type} file")
-
-        LOGGER.info(f"Parsed {len(list_of_psms)} peptides from {file_type} file")
-        return PSMList(psm_list=list_of_psms)
-
-    except pd.errors.EmptyDataError:
-        raise click.ClickException(f"{file_type.capitalize()} file is empty")
-    except pd.errors.ParserError as e:
-        raise click.ClickException(f"Error parsing {file_type} file: {e}")
-    except Exception as e:
-        raise click.ClickException(f"Unexpected error reading {file_type} file: {e}")
+    # Also set the level for all existing loggers (including im2deep modules)
+    for logger_name in logging.Logger.manager.loggerDict:
+        if logger_name.startswith("im2deep"):
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(log_mapping[passed_level.lower()])
 
 
 # Command line interface
-@click.group(invoke_without_command=True)
+@click.group(cls=DefaultCommandGroup, default_command="predict", invoke_without_command=True)
 @click.pass_context
 @click.option(
     "--logging-level",
@@ -261,21 +164,13 @@ def cli(ctx, logging_level):
     ctx.ensure_object(dict)
     ctx.obj["logging_level"] = logging_level
 
-    # If no subcommand is provided, invoke the predict command
-    if ctx.invoked_subcommand is None:
-        ctx.invoke(predict)
-
     console.print(build_credits())
 
 
 # Implement psm_utils reading for calibration and prediction PSMLists
 @cli.command()
 @click.argument(
-    "precursors",
-    type=click.Path(exists=True, dir_okay=False),
-    metavar="INPUT_FILE",
-    required=True,
-    help="Path to file with peptide precursors to predict CCS values for.",
+    "precursors", type=click.Path(exists=True, dir_okay=False), metavar="INPUT_FILE", required=True
 )
 @click.option(
     "-c",
@@ -337,12 +232,22 @@ def cli(ctx, logging_level):
     default=False,
     help="Output ion mobility (1/K0) instead of CCS values.",
 )
+@click.option(
+    "-l",
+    "--logging-level",
+    type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
+    default="info",
+    help="Set logging verbosity level.",
+)
 def predict(*args, **kwargs):
     """Predict CCS values for peptides (default command).
 
     If no calibration file is provided with -c, performs prediction only.
     With -c, performs calibration and prediction for improved accuracy.
     """
+    # Setup logging first
+    setup_logging(kwargs.get("logging_level", "info"))
+
     LOGGER.info("Starting IM2Deep CCS prediction...")
     LOGGER.debug(
         f"Input arguments: precursors={kwargs.get('precursors')}, "
@@ -356,19 +261,22 @@ def predict(*args, **kwargs):
 
     # Parse input files
     LOGGER.info("Parsing input files...")
-    # TODO: parsing logic, somewhere else?
-    # parsing should result in kwargs having 'psm_list' and 'psm_list_calibration' keys
+    psm_list = parse_input(kwargs.get("precursors"))
 
     # Run prediction
     LOGGER.info("Running CCS prediction...")
     if kwargs.get("calibration_precursors"):
         LOGGER.info("Calibration file provided, performing calibration and prediction...")
-        core.calibrate_and_predict(*args, **kwargs)
+        psm_list_cal = parse_input(kwargs.get("calibration_precursors"))
+        core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
     else:
         LOGGER.info(
             "No calibration file provided (calibration is HIGHLY recommended), performing prediction only..."
         )
         core.predict(*args, **kwargs)
+
+    # Output results
+    # CONTINUE HERE
 
 
 # TODO: implement train command
@@ -387,11 +295,19 @@ def predict(*args, **kwargs):
 #     default=100,
 #     help="Number of training epochs.",
 # )
-# def train(training_data, output_model, epochs):
+# @click.option(
+#     "-l",
+#     "--logging-level",
+#     type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
+#     default="info",
+#     help="Set logging verbosity level.",
+# )
+# def train(training_data, output_model, epochs, logging_level):
 #     """Train a new IM2Deep model.
 
 #     Example: im2deep train training_data.csv -o my_model.ckpt
 #     """
+#     setup_logging(logging_level)
 #     LOGGER.info("Starting IM2Deep training...")
 
 #     # Parse training data
@@ -408,11 +324,11 @@ def predict(*args, **kwargs):
 
 
 def main():
-    try:
-        cli(obj={})
-    except Exception as e:
-        LOGGER.error(f"Unexpected error in IM2Deep CLI: {e}")
-        sys.exit(1)
+    # try:
+    cli(obj={})
+    # except Exception as e:
+    #     LOGGER.error(f"Unexpected error in IM2Deep CLI: {e}")
+    #     sys.exit(1)
 
 
 # def main(

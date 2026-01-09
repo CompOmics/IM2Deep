@@ -10,8 +10,7 @@ from pathlib import Path
 import torch
 from rich.progress import track
 from torch.utils.data import DataLoader, Dataset
-
-from deeplc.data import split_datasets
+import lightning as L
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,8 +24,34 @@ def load_model(
     selected_device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load model from file if a path is provided
-    if isinstance(model, str | Path):
-        loaded_model = torch.load(model, weights_only=False, map_location=selected_device)
+    if isinstance(model, (str, Path)):
+        checkpoint = torch.load(model, weights_only=False, map_location=selected_device)
+
+        # Handle different checkpoint formats
+        if isinstance(checkpoint, dict):
+            # If it's a dictionary, it might be a checkpoint with 'model' or 'state_dict' key
+            if "model" in checkpoint:
+                loaded_model = checkpoint["model"]
+            elif "state_dict" in checkpoint:
+                # Need to initialize model architecture first, then load state dict
+                # For now, just extract the state dict
+                LOGGER.error(
+                    "Checkpoint contains state_dict but no model architecture. "
+                    "This format is not yet supported. Please provide a full model checkpoint."
+                )
+                raise NotImplementedError(
+                    "Loading from state_dict-only checkpoints is not yet implemented."
+                )
+            else:
+                # Assume the entire dict is the model (some formats do this)
+                LOGGER.warning(
+                    "Checkpoint is a dict but format is unclear. Attempting to use as-is."
+                )
+                loaded_model = checkpoint
+        else:
+            # Direct model object
+            loaded_model = checkpoint
+
     elif isinstance(model, torch.nn.Module):
         loaded_model = model
     elif model is None:
@@ -36,7 +61,13 @@ def load_model(
         raise TypeError(f"Expected a PyTorch Module or a file path, got {type(model)} instead.")
 
     # Ensure the model is on the specified device
-    loaded_model.to(selected_device)
+    if isinstance(loaded_model, torch.nn.Module):
+        loaded_model.to(selected_device)
+    else:
+        raise TypeError(
+            f"Loaded model is not a PyTorch Module, got {type(loaded_model)} instead. "
+            f"The checkpoint file may be in an incompatible format."
+        )
 
     return loaded_model
 
@@ -44,6 +75,7 @@ def load_model(
 def predict(
     model: torch.nn.Module | PathLike | str | None = None,
     data: Dataset | None = None,
+    multi=False,
     device: str = "cpu",
     batch_size: int = 512,
     num_workers: int = 0,
@@ -70,8 +102,17 @@ def predict(
         Predictions.
 
     """
+    # TODO: implement custom model inference
     LOGGER.debug("Loading model for prediction.")
-    model = load_model(model=model, device=device)
+    model = _get_architecture(
+        multi=multi,
+    ).load_from_checkpoint(
+        checkpoint_path=model,
+        config=_get_model_config(multi=multi),
+        criterion=_get_loss_function(multi=multi),
+    )
+    model.to(device)
+    LOGGER.debug(f"Model loaded on device: {device}")
 
     if data is None:
         raise ValueError("Data must be provided for prediction.")
@@ -101,3 +142,37 @@ def _predict_loop(
             outputs = model(*features)
             all_predictions.append(outputs.cpu())
     return torch.cat(all_predictions, dim=0).squeeze()
+
+
+def _get_architecture(multi: bool) -> L.LightningModule:
+    """Get the model architecture based on whether multi-output is needed."""
+    if multi:
+        from im2deeptrainer.model import IM2DeepMultiTransfer
+
+        return IM2DeepMultiTransfer
+    else:
+        from im2deeptrainer.model import IM2Deep
+
+        return IM2Deep
+
+
+def _get_model_config(multi: bool) -> dict:
+    """Get the model configuration based on whether multi-output is needed."""
+    if multi:
+        from im2deep.constants import DEFAULT_MULTI_CONFIG
+
+        return DEFAULT_MULTI_CONFIG
+    else:
+        from im2deep.constants import DEFAULT_CONFIG
+
+        return DEFAULT_CONFIG
+
+
+def _get_loss_function(multi: bool) -> torch.nn.modules.loss._Loss | torch.nn.Module:
+    """Get the loss function based on whether multi-output is needed."""
+    if multi:
+        from im2deeptrainer.utils import FlexibleLossSorted
+
+        return FlexibleLossSorted()
+    else:
+        return torch.nn.L1Loss()

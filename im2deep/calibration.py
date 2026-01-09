@@ -88,27 +88,42 @@ class LinearCCSCalibration(Calibration):
         """Fit the calibration using target and source CCS values."""
 
         LOGGER.debug("Calculating calibration parameters...")
-        try:
-            self.general_shift = self.calculate_ccs_shift(
-                target, source, per_charge=False, use_charge_state=self.use_charge_state or 2
-            )
-        except CalibrationError as e:
-            LOGGER.warning(
-                f"Could not calculate general shift factor: {e}. Using 0.0 as fallback."
-            )
-            self.general_shift = 0.0
 
         if self.per_charge:
-            LOGGER.debug("Calculating shift factors per charge state.")
-
+            # For per-charge calibration, calculate shifts for all charges
             LOGGER.debug("Calculating shift factors per charge state...")
-            self.charge_shifts = self.calculate_ccs_shift(
-                target,
-                source,
-                per_charge=self.per_charge,
-                use_charge_state=self.use_charge_state or 2,
-            )
-            LOGGER.debug(f"Calculated charge-specific shifts: {self.charge_shifts}")
+            try:
+                self.charge_shifts = self.calculate_ccs_shift(target, source)
+                LOGGER.debug(f"Calculated charge-specific shifts: {self.charge_shifts}")
+            except CalibrationError as e:
+                LOGGER.warning(
+                    f"Could not calculate charge-specific shift factors: {e}. Using 0.0 as fallback."
+                )
+                self.charge_shifts = {charge: 0.0 for charge in range(1, 7)}
+
+            # Also calculate a general shift for reference (using charge 2 as default)
+            try:
+                self.general_shift = self._compute_ccs_shift(source, target, 2)
+            except Exception:
+                # If charge 2 fails, try to get any available charge
+                available_charges = [
+                    c for c in self.charge_shifts.keys() if self.charge_shifts[c] is not None
+                ]
+                if available_charges:
+                    self.general_shift = self.charge_shifts[available_charges[0]]
+                else:
+                    self.general_shift = 0.0
+        else:
+            # For global calibration, calculate a single shift
+            try:
+                self.general_shift = self.calculate_ccs_shift(target, source)
+            except CalibrationError as e:
+                LOGGER.warning(
+                    f"Could not calculate general shift factor: {e}. Using 0.0 as fallback."
+                )
+                self.general_shift = 0.0
+            self.charge_shifts = {charge: self.general_shift for charge in range(1, 7)}
+
         self.used_charges = set(self.charge_shifts.keys())
         self.fitted = True
 
@@ -123,7 +138,7 @@ class LinearCCSCalibration(Calibration):
         calibrated_source = source.copy()
         for idx, psm in enumerate(calibrated_source):
             charge = psm.peptidoform.precursor_charge
-            ccs = psm.metadata["CCS"]
+            ccs = psm.metadata["predicted_CCS"]
             if self.per_charge and charge in self.charge_shifts:
                 shift = self.charge_shifts[charge]
             else:
@@ -132,7 +147,8 @@ class LinearCCSCalibration(Calibration):
                     f"using general shift factor: {self.general_shift}."
                 )
                 shift = cast(float, self.general_shift)
-            calibrated_source[idx].metadata["CCS"] = ccs + shift
+            calibrated_source[idx].metadata["uncalibrated_predicted_CCS"] = ccs
+            calibrated_source[idx].metadata["predicted_CCS"] = ccs + shift
         return calibrated_source
 
     def calculate_ccs_shift(
@@ -183,14 +199,18 @@ class LinearCCSCalibration(Calibration):
         else:
             # Per-charge calibration
             shift_factor_dict = self._compute_ccs_shift_per_charge(source, target)
-            # For any missing charge states, assign general shift
+            # For any missing charge states, use 0.0 as fallback
             for charge in range(1, 7):
-                if charge not in shift_factor_dict:
+                if charge not in shift_factor_dict or shift_factor_dict[charge] is None:
+                    # Try to use the shift from charge 2 as a reasonable fallback
+                    fallback_shift = shift_factor_dict.get(2, 0.0)
+                    if fallback_shift is None:
+                        fallback_shift = 0.0
                     LOGGER.debug(
                         f"No shift factor calculated for charge state {charge}. "
-                        f"Using general shift factor: {self.general_shift}."
+                        f"Using fallback shift: {fallback_shift:.3f}."
                     )
-                    shift_factor_dict[charge] = cast(float, self.general_shift)
+                    shift_factor_dict[charge] = float(fallback_shift)
             LOGGER.debug(f"CCS shift factors per charge: {shift_factor_dict}")
             return shift_factor_dict
 
@@ -201,14 +221,14 @@ class LinearCCSCalibration(Calibration):
         target_ccs = []
 
         source_dict = {
-            psm.peptidoform.sequence: psm.metadata["CCS"]
+            psm.peptidoform.sequence: float(psm.metadata["CCS"])
             for psm in source
-            if psm.peptidoform.precursor_charge == charge_state
+            if psm.peptidoform.precursor_charge == charge_state and "CCS" in psm.metadata
         }
         target_dict = {
-            psm.peptidoform.sequence: psm.metadata["CCS"]
+            psm.peptidoform.sequence: float(psm.metadata["CCS"])
             for psm in target
-            if psm.peptidoform.precursor_charge == charge_state
+            if psm.peptidoform.precursor_charge == charge_state and "CCS" in psm.metadata
         }
 
         overlapping_peptides = set(source_dict.keys()).intersection(set(target_dict.keys()))

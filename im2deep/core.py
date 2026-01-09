@@ -15,14 +15,10 @@ from deeplc.calibration import Calibration
 from im2deep.utils import validate_psm_list
 from im2deep import _model_ops
 from im2deep.calibration import LinearCCSCalibration
+from im2deep.utils import get_default_reference
+from im2deep.constants import DEFAULT_MODEL, DEFAULT_MULTI_MODEL
 
 LOGGER = logging.getLogger(__name__)
-DEFAULT_MODEL_NAME = "IM2DeepUni.ckpt"
-DEFAULT_MODEL = Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MODEL_NAME
-DEFAULT_MULTI_MODEL_NAME = "IM2DeepMulti.ckpt"
-DEFAULT_MULTI_MODEL = (
-    Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MULTI_MODEL_NAME
-)
 
 
 def predict(
@@ -54,19 +50,21 @@ def predict(
     return _model_ops.predict(
         model=model or DEFAULT_MODEL if not multi else DEFAULT_MULTI_MODEL,
         data=DeepLCDataset.from_psm_list(psm_list, add_ccs_features=True),
+        multi=multi,
         **(predict_kwargs or {}),
         # TODO: check if "backbone" argument is needed for multi
     ).numpy()
 
 
-def calibrate_and_predict(
+def predict_and_calibrate(
     psm_list: PSMList,
     psm_list_cal: PSMList,
-    psm_list_reference: PSMList,
+    psm_list_reference: PSMList | None = None,
     model: torch.nn.Module | PathLike | str | None = None,
     calibration: Calibration | None = None,
     multi: bool = False,
     predict_kwargs: dict | None = None,
+    **kwargs,
 ) -> np.ndarray:
     """
     Calibrate and predict CCS values for a list of PSMs using a reference PSM list.
@@ -95,12 +93,20 @@ def calibrate_and_predict(
     psm_list = validate_psm_list(psm_list)
     psm_list_cal = validate_psm_list(psm_list_cal, needs_target=True)
     # TODO: the reference dataset is a csv, so we need to convert to PSMList somewhere
-    psm_list_reference = validate_psm_list(psm_list_reference, needs_target=True)
+    if psm_list_reference:
+        psm_list_reference = validate_psm_list(psm_list_reference, needs_target=True)
+    else:
+        psm_list_reference = get_default_reference(multi=multi)
     predicted_ccs = predict(
+        psm_list=psm_list,
         model=model,
         multi=multi,
         predict_kwargs=predict_kwargs,
     )
+
+    # Assign the predicted CCS to the PSM metadata for calibration
+    for idx, psm in enumerate(psm_list):
+        psm.metadata["predicted_CCS"] = predicted_ccs[idx]
 
     # Perform calibration
     if calibration is None:
@@ -123,9 +129,12 @@ def calibrate_and_predict(
         LOGGER.info("Calibration is already fitted, skipping fitting step.")
 
     # Apply calibration to predictions
-    calibrated_ccs = calibration.transform(predicted_ccs)
+    psm_list_calibrated = calibration.transform(psm_list)
 
-    return calibrated_ccs
+    return np.array(
+        [psm.metadata["predicted_CCS"] for psm in psm_list_calibrated],
+        dtype=np.float32,
+    )
 
 
 def train(

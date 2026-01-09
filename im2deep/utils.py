@@ -15,29 +15,58 @@ Constants:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 import logging
+from rich.text import Text
+import gzip
 
 import numpy as np
+import psm_utils.io
+import pandas as pd
 from psm_utils.psm_list import PSMList
+from psm_utils.psm import PSM
 
 from im2deep._exceptions import IM2DeepError
-
-MULTI_BACKBONE_PATH = (
-    Path(__file__).parent / "models" / "TIMS_multi" / "multi_output_backbone.ckpt"
+from im2deep.constants import (
+    SUMMARY_CONSTANT,
+    MASS_GAS_N2,
+    TEMP,
+    T_DIFF,
+    DEFAULT_MODEL,
+    DEFAULT_MULTI_MODEL,
+    DEFAULT_REFERENCE_DATASET_PATH,
+    DEFAULT_MULTI_REFERENCE_DATASET_PATH,
+    MULTI_BACKBONE_PATH,
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+def build_credits():
+    """Build credits"""
+    text = Text()
+    text.append("\n")
+    text.append("IM2Deep\n", style="bold link https://github.com/compomics/im2deep")
+    text.append("Developed at CompOmics, VIB / Ghent University, Belgium.\n")
+    text.append("Please cite: ")
+    text.append(
+        "Devreese et al. Anal. Chem. (2025)",
+        style="link https://pubs.acs.org/doi/10.1021/acs.analchem.5c01142",
+    )
+    text.append("\n")
+    text.stylize("cyan")
+    return text
 
 
 def im2ccs(
     reverse_im: float | np.ndarray,
     mz: float | np.ndarray,
     charge: int | np.ndarray,
-    mass_gas: float = 28.013,
-    temp: float = 31.85,
-    t_diff: float = 273.15,
+    mass_gas: float = MASS_GAS_N2,
+    temp: float = TEMP,
+    t_diff: float = T_DIFF,
 ) -> float | np.ndarray:
     """
     Convert reduced ion mobility to collisional cross section.
@@ -106,7 +135,6 @@ def im2ccs(
     if temp <= -t_diff:
         raise ValueError("Temperature must be above absolute zero")
 
-    SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return (SUMMARY_CONSTANT * charge) / (np.sqrt(reduced_mass * (temp + t_diff)) * 1 / reverse_im)
 
@@ -115,9 +143,9 @@ def ccs2im(
     ccs: float | np.ndarray,
     mz: float | np.ndarray,
     charge: int | np.ndarray,
-    mass_gas: float = 28.013,
-    temp: float = 31.85,
-    t_diff: float = 273.15,
+    mass_gas: float = MASS_GAS_N2,
+    temp: float = TEMP,
+    t_diff: float = T_DIFF,
 ) -> float | np.ndarray:
     """
     Convert collisional cross section to reduced ion mobility.
@@ -184,9 +212,184 @@ def ccs2im(
     if temp <= -t_diff:
         raise ValueError("Temperature must be above absolute zero")
 
-    SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return ((np.sqrt(reduced_mass * (temp + t_diff))) * ccs) / (SUMMARY_CONSTANT * charge)
+
+
+def check_optional_dependencies() -> None:
+    """
+    Check if optional dependencies for multi-conformer prediction are available.
+
+    Raises
+    ------
+    SystemExit
+        If required dependencies are missing
+    """
+    try:
+        import torch
+        import im2deeptrainer
+
+        LOGGER.debug("Optional dependencies for multi-conformer prediction found")
+    except ImportError:
+        LOGGER.error(
+            "Multi-conformer prediction requires optional dependencies.\n"
+            "Please install IM2Deep with optional dependencies:\n"
+            "pip install 'im2deep[er]'"
+        )
+        sys.exit(1)
+
+
+def parse_input(
+    input_file: str | Path | PSMList | pd.DataFrame, filetype: str | None = None
+) -> PSMList:
+    """
+    Parse input file or PSMList into a PSMList object.
+
+    Parameters
+    ----------
+    file_path : str, Path, or PSMList
+        Path to the input file or a PSMList object.
+
+    Returns
+    -------
+    PSMList
+        Parsed PSMList object.
+    """
+    if isinstance(input_file, PSMList):
+        LOGGER.debug(f"Parsed {len(input_file)} PSMs from provided PSMList.")
+        return input_file
+
+    if isinstance(input_file, pd.DataFrame):
+        LOGGER.debug(f"Parsing PSMs from provided DataFrame with {len(input_file)} rows.")
+        list_of_precursors = []
+        for idx, row in input_file.iterrows():
+            try:
+                precursor = PSM(peptidoform=row["peptidoform"], spectrum_id=idx)
+                if "CCS" in row:
+                    precursor.metadata["CCS"] = float(row["CCS"])
+                list_of_precursors.append(precursor)
+            except Exception as e:
+                LOGGER.warning("Error parsing row %d: %s. Skipping.", idx, e)
+                continue
+
+        if not list_of_precursors:
+            raise IM2DeepError("No valid PSMs could be parsed from the DataFrame.")
+
+        psm_list = PSMList(psm_list=list_of_precursors)
+        LOGGER.debug(f"Parsed {len(psm_list)} PSMs from DataFrame.")
+        return psm_list
+
+    if not isinstance(input_file, (str, Path)):
+        raise TypeError("input_file must be a str, Path, or PSMList.")
+
+    LOGGER.info("Reading PSMs from file: %s", input_file)
+
+    # First, check if it's a legacy format by inspecting the header
+    is_legacy_format = False
+    try:
+        # Read first line to check column names
+        with open(input_file, "r") as f:
+            first_line = f.readline().strip()
+
+        # Check if it has legacy format columns
+        if "seq" in first_line.lower() and "modifications" in first_line.lower():
+            # Additional check: legacy format should NOT have standard PSM format columns
+            if not any(
+                col in first_line.lower() for col in ["peptidoform", "protein", "spectrum_id"]
+            ):
+                is_legacy_format = True
+                LOGGER.debug("Detected legacy internal format based on header.")
+    except Exception as e:
+        LOGGER.debug(f"Could not pre-check file format: {e}")
+
+    # Parse based on detected format
+    if is_legacy_format:
+        psm_list = _parse_legacy_format(input_file)
+    else:
+        # Try to parse with psm_utils
+        try:
+            psm_list = psm_utils.io.read_file(input_file, filetype=filetype or "infer")
+            LOGGER.debug(f"Successfully read file using psm_utils.")
+        except Exception as e:
+            # If psm_utils fails, try legacy format as fallback
+            LOGGER.warning(f"Failed to read PSM file using psm_utils: {e}")
+            LOGGER.info("Attempting to read as legacy internal format.")
+            psm_list = _parse_legacy_format(input_file)
+
+    LOGGER.debug(f"Parsed {len(psm_list)} PSMs from file.")
+    return psm_list
+
+
+def _parse_legacy_format(input_file: str | Path) -> PSMList:
+    """
+    Parse legacy internal format delimited file.
+
+    Expected columns: seq, modifications, charge, and optionally CCS.
+    Supports CSV, TSV, and other delimited formats.
+
+    Parameters
+    ----------
+    input_file : str or Path
+        Path to the legacy format file.
+
+    Returns
+    -------
+    PSMList
+        Parsed PSMList object.
+
+    Raises
+    ------
+    IM2DeepError
+        If required columns are missing or parsing fails.
+    """
+    try:
+        # Use sep=None with engine='python' to auto-detect delimiter
+        df = pd.read_csv(input_file, sep=None, engine="python")
+        df = df.fillna("")  # Replace NaN with empty strings
+    except Exception as e:
+        raise IM2DeepError(f"Failed to read file as delimited text: {e}")
+
+    required_cols_legacy = ["seq", "modifications", "charge"]
+    missing_cols = set(required_cols_legacy) - set(df.columns)
+
+    # Handle peprec format (uses 'peptide' instead of 'seq')
+    if "seq" not in df.columns and "peptide" in df.columns:
+        df.rename(columns={"peptide": "seq"}, inplace=True)
+        missing_cols = set(required_cols_legacy) - set(df.columns)
+
+    if missing_cols:
+        raise IM2DeepError(
+            f"Legacy format file is missing required columns: {missing_cols}. "
+            f"Expected columns: seq (or peptide), modifications, charge"
+        )
+
+    has_ccs = "CCS" in df.columns
+
+    list_of_precursors = []
+    for idx, row in df.iterrows():
+        metadata = {}
+        try:
+            peptidoform = psm_utils.io.peptide_record.peprec_to_proforma(
+                peptide=row["seq"],
+                modifications=row["modifications"],
+                charge=int(row["charge"]),
+            )
+            if has_ccs:
+                metadata = {"CCS": float(row["CCS"])}
+
+            LOGGER.debug(f"Parsed PSM: {peptidoform} with metadata: {metadata}")
+            precursor = PSM(peptidoform=peptidoform, metadata=metadata, spectrum_id=idx)
+            list_of_precursors.append(precursor)
+        except Exception as e:
+            LOGGER.warning("Error parsing row %d: %s. Skipping.", idx, e)
+            continue
+
+    if not list_of_precursors:
+        raise IM2DeepError("No valid PSMs could be parsed from the legacy format file.")
+
+    psm_list = PSMList(psm_list=list_of_precursors)
+    LOGGER.info(f"Successfully read {len(psm_list)} PSMs as legacy internal format.")
+    return psm_list
 
 
 def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
@@ -204,7 +407,7 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
     # Filter high charge states (IM2Deep predictions are not reliable for charges >6)
     original_size = len(psm_list)
     psm_list_filtered = PSMList(
-        [psm for psm in psm_list if psm.peptidoform.precursor_charge <= 6]
+        psm_list=[psm for psm in psm_list if psm.peptidoform.precursor_charge <= 6]
     ).copy()
 
     if len(psm_list_filtered) < original_size:
@@ -241,29 +444,28 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
         return psm_list_filtered
 
 
-# Configuration for multi-conformer model
-multi_config: dict[str, Any] = {
-    "model_name": "IM2DeepMulti",
-    "batch_size": 16,
-    "learning_rate": 0.0001,
-    "AtomComp_kernel_size": 4,
-    "DiatomComp_kernel_size": 2,
-    "One_hot_kernel_size": 2,
-    "AtomComp_out_channels_start": 256,
-    "DiatomComp_out_channels_start": 128,
-    "Global_units": 16,
-    "OneHot_out_channels": 2,
-    "Concat_units": 128,
-    "AtomComp_MaxPool_kernel_size": 2,
-    "DiatomComp_MaxPool_kernel_size": 2,
-    "Mol_MaxPool_kernel_size": 2,
-    "OneHot_MaxPool_kernel_size": 10,
-    "LRelu_negative_slope": 0.1,
-    "LRelu_saturation": 20,
-    "L1_alpha": 0.00001,
-    "delta": 0,
-    "device": 0,
-    "add_X_mol": False,
-    "init": "normal",
-    "backbone_SD_path": MULTI_BACKBONE_PATH,
-}
+def get_default_reference(multi: bool = False) -> PSMList:
+    """
+    Get the default reference PSMList for calibration.
+
+    Parameters
+    ----------
+    multi : bool, optional
+        Whether to use the multi-conformer reference. Default is False.
+
+    Returns
+    -------
+    PSMList
+        The default reference PSMList.
+    """
+    reference_data_path = (
+        DEFAULT_MULTI_REFERENCE_DATASET_PATH if multi else DEFAULT_REFERENCE_DATASET_PATH
+    )
+    LOGGER.info(f"Loading default reference dataset from {reference_data_path}")
+    # dataset is in .gz format, so we need to extract it first
+    reference_dataset = pd.read_csv(reference_data_path, compression="gzip", keep_default_na=False)
+    # TODO: this is quite slow, converting this to PSMList is probably slower than converting .to_dataframe and working from there,
+    # but it is nicer to only work with PSMList objects in the rest of the codebase
+    reference_psm_list = parse_input(reference_dataset)
+    LOGGER.debug(f"Loaded {len(reference_psm_list)} PSMs from default reference dataset")
+    return reference_psm_list
