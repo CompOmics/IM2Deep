@@ -117,7 +117,10 @@ class LinearCCSCalibration(Calibration):
 
             LOGGER.debug("Calculating shift factors per charge state...")
             self.charge_shifts = self.calculate_ccs_shift(
-                target, source, per_charge=self.per_charge
+                target,
+                source,
+                per_charge=self.per_charge,
+                use_charge_state=self.use_charge_state or 2,
             )
             LOGGER.debug(f"Calculated charge-specific shifts: {self.charge_shifts}")
         self.used_charges = set(self.charge_shifts.keys())
@@ -146,13 +149,164 @@ class LinearCCSCalibration(Calibration):
             calibrated_source[idx].metadata["CCS"] = ccs + shift
         return calibrated_source
 
-    @staticmethod
     def calculate_ccs_shift(
+        self,
         target: PSMList,
         source: PSMList,
-        per_charge: bool = True,
-        use_charge_state: int | None = None,
     ) -> dict[int, float] | float:
-        """Calculate CCS shift factors between target and source PSMLists."""
+        """
+        Calculate CCS shift factors between target and source PSMLists.
+
+        Parameters
+        ----------
+        target
+            Reference PSMList with target CCS values.
+        source
+            PSMList with source CCS values to be calibrated.
+
+        Returns
+        -------
+        dict[int, float] | float
+            Shift factors per charge state if per_charge is True, otherwise a single shift factor.
+
+        Raises
+        ------
+        CalibrationError
+            If no overlapping peptides are found for shift calculation.
+        Notes
+        -----
+        The function automatically filters out charges >6 as IM2Deep predictions are not reliable for higher charge states.
+        A warning is logged if any peptides are filtered out.
+        """
         # TODO: Implement actual shift calculation logic
-        raise NotImplementedError("CCS shift calculation not implemented yet.")
+        if self.use_charge_state is not None and not 1 <= self.use_charge_state <= 6:
+            raise CalibrationError(
+                f"Invalid charge state {self.use_charge_state} for global shift calculation."
+            )
+
+        # Filter high charge states (IM2Deep predictions are not reliable for charges >6)
+        original_size = len(source)
+        source_filtered = PSMList(
+            [psm for psm in source if psm.peptidoform.precursor_charge <= 6]
+        ).copy()
+
+        # TODO: needs to be moved outside calibration
+        if len(source_filtered) < original_size:
+            filtered_count = original_size - len(source_filtered)
+            LOGGER.warning(
+                f"Filtered out {filtered_count} PSMs with charge states >6 for shift calculation.\n"
+                f"Predictions are not reliable for z>6."
+            )
+
+        if len(source_filtered) == 0:
+            raise CalibrationError("No PSMs available for shift calculation after filtering.")
+
+        if not self.per_charge:
+            # Global calibration using specified charge state
+            if self.use_charge_state is None:
+                self.use_charge_state = 2  # Default charge state
+                LOGGER.debug(
+                    "No charge state specified for global calibration. Using default charge state 2 for global shift calculation."
+                )
+
+            shift_factor = self._compute_ccs_shift(source_filtered, target, self.use_charge_state)
+            LOGGER.debug(f"Global CCS shift factor: {shift_factor:.3f}")
+            return shift_factor
+        else:
+            # Per-charge calibration
+            shift_factor_dict = self._compute_ccs_shift_per_charge(source_filtered, target)
+            # For any missing charge states, assign general shift
+            for charge in range(1, 7):
+                if charge not in shift_factor_dict:
+                    LOGGER.debug(
+                        f"No shift factor calculated for charge state {charge}. "
+                        f"Using general shift factor: {self.general_shift}."
+                    )
+                    shift_factor_dict[charge] = cast(float, self.general_shift)
+            LOGGER.debug(f"CCS shift factors per charge: {shift_factor_dict}")
+            return shift_factor_dict
+
+    @staticmethod
+    def _compute_ccs_shift(source, target, charge_state: int) -> float:
+        """Compute CCS shift for a specific charge state."""
+        source_ccs = []
+        target_ccs = []
+
+        source_dict = {
+            psm.peptidoform.sequence: psm.metadata["CCS"]
+            for psm in source
+            if psm.peptidoform.precursor_charge == charge_state
+        }
+        target_dict = {
+            psm.peptidoform.sequence: psm.metadata["CCS"]
+            for psm in target
+            if psm.peptidoform.precursor_charge == charge_state
+        }
+
+        overlapping_peptides = set(source_dict.keys()).intersection(set(target_dict.keys()))
+
+        LOGGER.debug(
+            f"Calculating CCS shift based on {len(overlapping_peptides)} overlapping peptides for charge state {charge_state}."
+        )
+
+        if len(overlapping_peptides) == 0:
+            LOGGER.warning(f"No overlapping peptides found for charge state {charge_state}.")
+            return 0.0
+
+        if len(overlapping_peptides) < 10:
+            LOGGER.warning(
+                f"Only {len(overlapping_peptides)} overlapping peptides found for charge state {charge_state}. "
+                "Shift calculation may be unreliable."
+            )
+
+        for peptide in overlapping_peptides:
+            source_ccs.append(source_dict[peptide])
+            target_ccs.append(target_dict[peptide])
+
+        source_ccs = np.array(source_ccs)
+        target_ccs = np.array(target_ccs)
+
+        shift = np.mean(target_ccs - source_ccs)
+
+        if abs(shift) > 100.0:
+            LOGGER.warning(
+                f"Unusually large CCS shift ({shift:.2f}) detected for charge state {charge_state}."
+                " Please verify the calibration datasets."
+            )
+        return float(shift)
+
+    @staticmethod
+    def _compute_ccs_shift_per_charge(source, target) -> dict[int, float]:
+        """
+        Calculate CCS shift factors per charge state.
+
+        Parameters
+        ----------
+        source
+            PSMList with source CCS values to be calibrated.
+        target
+            Reference PSMList with target CCS values.
+
+        Returns
+        -------
+        dict[int, float]
+            Shift factors per charge state.
+
+        Raises
+        ------
+        CalibrationError
+            If no overlapping peptides are found for any charge state.
+        """
+        shift_factors = {}
+        charges_in_source = set(psm.peptidoform.precursor_charge for psm in source)
+
+        for charge in charges_in_source:
+            shift = LinearCCSCalibration._compute_ccs_shift(source, target, charge)
+            if shift == np.nan:
+                LOGGER.warning(f"No valid CCS shift calculated for charge state {charge}.")
+            shift_factors[charge] = shift
+
+        if len(shift_factors) == 0:
+            raise CalibrationError("No CCS shift factors could be calculated.")
+
+        return shift_factors
