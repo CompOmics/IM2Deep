@@ -15,7 +15,6 @@ from deeplc.calibration import Calibration
 from im2deep.utils import validate_psm_list
 from im2deep import _model_ops
 from im2deep.calibration import LinearCCSCalibration
-from im2deep.utils import get_default_reference
 from im2deep.constants import DEFAULT_MODEL, DEFAULT_MULTI_MODEL
 
 LOGGER = logging.getLogger(__name__)
@@ -93,10 +92,6 @@ def predict_and_calibrate(
     psm_list = validate_psm_list(psm_list)
     psm_list_cal = validate_psm_list(psm_list_cal, needs_target=True)
     # TODO: the reference dataset is a csv, so we need to convert to PSMList somewhere
-    if psm_list_reference:
-        psm_list_reference = validate_psm_list(psm_list_reference, needs_target=True)
-    else:
-        psm_list_reference = get_default_reference(multi=multi)
     predicted_ccs = predict(
         psm_list=psm_list,
         model=model,
@@ -124,7 +119,7 @@ def predict_and_calibrate(
                 "Calibration PSM list contains decoy PSMs. "
                 "These will be ignored during calibration fitting."
             )
-        calibration.fit(psm_list_reference, psm_list_cal)
+        calibration.fit(psm_list_cal, multi=multi)
     else:
         LOGGER.info("Calibration is already fitted, skipping fitting step.")
 

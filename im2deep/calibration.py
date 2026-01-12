@@ -10,11 +10,13 @@ import logging
 from abc import ABC, abstractmethod
 from typing import cast
 
+import pandas as pd
 import numpy as np
-from deeplc.calibration import Calibration
 from psm_utils import PSMList
 
 from im2deep._exceptions import CalibrationError
+from im2deep.utils import parse_input
+from im2deep.constants import DEFAULT_REFERENCE_DATASET_PATH, DEFAULT_MULTI_REFERENCE_DATASET_PATH
 
 LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +77,8 @@ class LinearCCSCalibration(Calibration):
         self.fitted = False
         self.charge_shifts: dict[int, float] = {}
         self.general_shift: float | None = None
+        self.used_charges: set[int] = set()
+        self.reference_psm_list: PSMList | None = None
 
     @property
     def is_fitted(self) -> bool:
@@ -82,11 +86,17 @@ class LinearCCSCalibration(Calibration):
 
     def fit(
         self,
-        target: PSMList,
         source: PSMList,
+        target: PSMList | None = None,
+        multi: bool = False,
     ) -> None:
         """Fit the calibration using target and source CCS values."""
-
+        if target is None:
+            if self.reference_psm_list is None:
+                LOGGER.debug("No reference PSMList provided, loading default reference dataset.")
+                target = self.get_default_reference(multi=multi)
+            else:
+                target = self.reference_psm_list
         LOGGER.debug("Calculating calibration parameters...")
 
         if self.per_charge:
@@ -213,6 +223,33 @@ class LinearCCSCalibration(Calibration):
                     shift_factor_dict[charge] = float(fallback_shift)
             LOGGER.debug(f"CCS shift factors per charge: {shift_factor_dict}")
             return shift_factor_dict
+
+    def get_default_reference(self, multi: bool = False) -> PSMList:
+        """
+        Get the default reference PSMList for calibration.
+
+        Parameters
+        ----------
+        multi
+            Whether to use the multi-charge reference dataset.
+
+        Returns
+        -------
+        PSMList
+            Default reference PSMList.
+        """
+        reference_data_path = (
+            DEFAULT_MULTI_REFERENCE_DATASET_PATH if multi else DEFAULT_REFERENCE_DATASET_PATH
+        )
+        LOGGER.info(f"Loading default reference dataset from {reference_data_path}")
+        # dataset is in .gz format, so we need to extract it
+        reference_dataset = pd.read_csv(
+            reference_data_path, compression="gzip", keep_default_na=False
+        )
+        ## TODO: this is quite slow, converting this to PSMList is probably slower than converting .to_dataframe and working from there,
+        self.reference_psm_list = parse_input(reference_dataset)
+        LOGGER.debug(f"Loaded {len(self.reference_psm_list)} PSMs from default reference dataset")
+        return self.reference_psm_list
 
     @staticmethod
     def _compute_ccs_shift(source, target, charge_state: int) -> float:

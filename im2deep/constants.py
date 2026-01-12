@@ -9,7 +9,7 @@ DEFAULT_MULTI_MODEL = (
 )
 DEFAULT_REFERENCE_DATASET_PATH = (
     Path(__file__).resolve().parent / "reference_data" / "reference_ccs.csv.gz"
-)  # TODO: Remake the dataset
+)
 DEFAULT_MULTI_REFERENCE_DATASET_PATH = (
     Path(__file__).parent / "reference_data" / "multi_reference_ccs.csv.gz"
 )

@@ -22,9 +22,12 @@ import logging
 from rich.text import Text
 import gzip
 
+import click
 import numpy as np
 import psm_utils.io
 import pandas as pd
+from rich.console import Console
+from rich.logging import RichHandler
 from psm_utils.psm_list import PSMList
 from psm_utils.psm import PSM
 
@@ -34,12 +37,9 @@ from im2deep.constants import (
     MASS_GAS_N2,
     TEMP,
     T_DIFF,
-    DEFAULT_MODEL,
-    DEFAULT_MULTI_MODEL,
-    DEFAULT_REFERENCE_DATASET_PATH,
-    DEFAULT_MULTI_REFERENCE_DATASET_PATH,
-    MULTI_BACKBONE_PATH,
 )
+
+console = Console()
 
 LOGGER = logging.getLogger(__name__)
 
@@ -444,28 +444,125 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
         return psm_list_filtered
 
 
-def get_default_reference(multi: bool = False) -> PSMList:
+class DefaultCommandGroup(click.Group):
+    """Custom Click Group that invokes a default command if no subcommand is specified."""
+
+    def __init__(self, *args, **kwargs):
+        self.default_command = kwargs.pop("default_command", None)
+        super().__init__(*args, **kwargs)
+
+    def resolve_command(self, ctx, args):
+        try:
+            # Try to resolve the command normally
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            # If it fails and we have a default command, use that
+            if self.default_command and args:
+                # Get the default command
+                cmd_name = self.default_command
+                cmd = self.commands.get(cmd_name)
+                if cmd:
+                    return cmd_name, cmd, args
+            # Re-raise the error if no default or command not found
+            raise
+
+
+def setup_logging(passed_level: str) -> None:
     """
-    Get the default reference PSMList for calibration.
+    Configure logging with Rich formatting.
 
     Parameters
     ----------
-    multi : bool, optional
-        Whether to use the multi-conformer reference. Default is False.
+    passed_level : str
+        Logging level name (debug, info, warning, error, critical)
 
-    Returns
-    -------
-    PSMList
-        The default reference PSMList.
+    Raises
+    ------
+    ValueError
+        If invalid logging level provided
     """
-    reference_data_path = (
-        DEFAULT_MULTI_REFERENCE_DATASET_PATH if multi else DEFAULT_REFERENCE_DATASET_PATH
+    log_mapping = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR,
+        "critical": logging.CRITICAL,
+    }
+
+    if passed_level.lower() not in log_mapping:
+        raise ValueError(
+            f"Invalid log level: {passed_level}. " f"Should be one of {list(log_mapping.keys())}"
+        )
+
+    # Get the root logger and set its level
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_mapping[passed_level.lower()])
+
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add Rich handler
+    rich_handler = RichHandler(
+        rich_tracebacks=True, console=console, show_level=True, show_path=True
     )
-    LOGGER.info(f"Loading default reference dataset from {reference_data_path}")
-    # dataset is in .gz format, so we need to extract it first
-    reference_dataset = pd.read_csv(reference_data_path, compression="gzip", keep_default_na=False)
-    # TODO: this is quite slow, converting this to PSMList is probably slower than converting .to_dataframe and working from there,
-    # but it is nicer to only work with PSMList objects in the rest of the codebase
-    reference_psm_list = parse_input(reference_dataset)
-    LOGGER.debug(f"Loaded {len(reference_psm_list)} PSMs from default reference dataset")
-    return reference_psm_list
+    rich_handler.setLevel(log_mapping[passed_level.lower()])
+    root_logger.addHandler(rich_handler)
+
+    # Also set the level for all existing loggers (including im2deep modules)
+    for logger_name in logging.Logger.manager.loggerDict:
+        if logger_name.startswith("im2deep"):
+            logger = logging.getLogger(logger_name)
+            logger.setLevel(log_mapping[passed_level.lower()])
+
+
+def infer_output_name(
+    input_filename: str,
+    output_name: str | None = None,
+) -> Path:
+    """Infer output filename from input filename if output_filename was not defined."""
+    if output_name:
+        return Path(output_name)
+    else:
+        input__filename = Path(input_filename)
+        return input__filename.with_name(
+            input__filename.stem + "_IM2Deep-predictions"
+        ).with_suffix("")
+
+
+def write_output(
+    output_name: Path, predictions: np.ndarray, psm_list: PSMList, ion_mobility: bool = False
+) -> None:
+    """
+    Write the predictions to a CSV file.
+
+    Parameters
+    ----------
+    output_name : Path
+        The output file path.
+    predictions : np.ndarray
+        The predicted CCS values.
+    psm_list : PSMList
+        The original PSMList.
+    ion_mobility : bool, optional
+        Whether to include ion mobility in the output. Default is False.
+    """
+    output_data = []
+    for idx, psm in enumerate(psm_list):
+        entry = {
+            "index": psm.spectrum_id,
+            "peptidoform": str(psm.peptidoform),
+            "predicted_CCS": predictions[idx],
+        }
+        if ion_mobility:
+            im_value = ccs2im(
+                predictions[idx],
+                psm.peptidoform.theoretical_mz,
+                psm.peptidoform.precursor_charge,
+            )
+            entry["predicted_ion_mobility"] = im_value
+        output_data.append(entry)
+
+    output_df = pd.DataFrame(output_data)
+    output_df.to_csv(output_name, index=False)
+    LOGGER.info(f"Predictions written to {output_name}")

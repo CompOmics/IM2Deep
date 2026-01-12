@@ -42,99 +42,24 @@ Authors:
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
-from typing import Optional
+
 
 import click
-import pandas as pd
 from rich.console import Console
 
-from psm_utils.io import read_file
-from psm_utils.io.exceptions import PSMUtilsIOException
-from psm_utils.io.peptide_record import peprec_to_proforma
-from psm_utils.psm import PSM
-from psm_utils.psm_list import PSMList
-from rich.logging import RichHandler
-
 from im2deep import __version__, core
-from im2deep.utils import parse_input, build_credits, check_optional_dependencies
+from im2deep.utils import (
+    setup_logging,
+    parse_input,
+    build_credits,
+    check_optional_dependencies,
+    write_output,
+    infer_output_name,
+    DefaultCommandGroup,
+)
 
 console = Console()
 LOGGER = logging.getLogger(__name__)
-
-
-class DefaultCommandGroup(click.Group):
-    """Custom Click Group that invokes a default command if no subcommand is specified."""
-
-    def __init__(self, *args, **kwargs):
-        self.default_command = kwargs.pop("default_command", None)
-        super().__init__(*args, **kwargs)
-
-    def resolve_command(self, ctx, args):
-        try:
-            # Try to resolve the command normally
-            return super().resolve_command(ctx, args)
-        except click.UsageError:
-            # If it fails and we have a default command, use that
-            if self.default_command and args:
-                # Get the default command
-                cmd_name = self.default_command
-                cmd = self.commands.get(cmd_name)
-                if cmd:
-                    return cmd_name, cmd, args
-            # Re-raise the error if no default or command not found
-            raise
-
-
-# TODO: move to utils
-def setup_logging(passed_level: str) -> None:
-    """
-    Configure logging with Rich formatting.
-
-    Parameters
-    ----------
-    passed_level : str
-        Logging level name (debug, info, warning, error, critical)
-
-    Raises
-    ------
-    ValueError
-        If invalid logging level provided
-    """
-    log_mapping = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "warning": logging.WARNING,
-        "error": logging.ERROR,
-        "critical": logging.CRITICAL,
-    }
-
-    if passed_level.lower() not in log_mapping:
-        raise ValueError(
-            f"Invalid log level: {passed_level}. " f"Should be one of {list(log_mapping.keys())}"
-        )
-
-    # Get the root logger and set its level
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_mapping[passed_level.lower()])
-
-    # Remove existing handlers to avoid duplicates
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    # Add Rich handler
-    rich_handler = RichHandler(
-        rich_tracebacks=True, console=console, show_level=True, show_path=True
-    )
-    rich_handler.setLevel(log_mapping[passed_level.lower()])
-    root_logger.addHandler(rich_handler)
-
-    # Also set the level for all existing loggers (including im2deep modules)
-    for logger_name in logging.Logger.manager.loggerDict:
-        if logger_name.startswith("im2deep"):
-            logger = logging.getLogger(logger_name)
-            logger.setLevel(log_mapping[passed_level.lower()])
 
 
 # Command line interface
@@ -278,9 +203,11 @@ def predict(*args, **kwargs):
     # Output results
     LOGGER.info("IM2Deep CCS prediction completed successfully!")
     output_name = kwargs.pop("output_file")
-    output_name = _infer_output_name(kwargs["precursors"], output_name).with_suffix(".csv")
+    output_name = infer_output_name(kwargs["precursors"], output_name).with_suffix(".csv")
     LOGGER.info(f"Writing output file to {output_name}...")
     write_output(output_name, predictions, psm_list, kwargs.get("ion_mobility", False))
+    LOGGER.info("Output file written successfully.")
+    LOGGER.info("IM2Deep finished.")
 
 
 # TODO: implement train command
@@ -493,3 +420,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    build_credits()
