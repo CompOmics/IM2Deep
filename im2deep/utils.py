@@ -279,7 +279,7 @@ def parse_input(
         LOGGER.debug(f"Parsed {len(psm_list)} PSMs from DataFrame.")
         return psm_list
 
-    if not isinstance(input_file, (str, Path)):
+    if not isinstance(input_file, (str, Path, PSMList)):
         raise TypeError("input_file must be a str, Path, or PSMList.")
 
     LOGGER.info("Reading PSMs from file: %s", input_file)

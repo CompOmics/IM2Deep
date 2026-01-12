@@ -12,7 +12,7 @@ from typing import cast
 
 import pandas as pd
 import numpy as np
-from psm_utils import PSMList
+from psm_utils import PSMList, Peptidoform
 
 from im2deep._exceptions import CalibrationError
 from im2deep.utils import parse_input
@@ -86,24 +86,42 @@ class LinearCCSCalibration(Calibration):
 
     def fit(
         self,
-        source: PSMList,
-        target: PSMList | None = None,
+        peptidoforms_source: np.ndarray,
+        observed_ccs_source: np.ndarray,
+        peptidoforms_target: np.ndarray | None = None,
+        observed_ccs_target: np.ndarray | None = None,
         multi: bool = False,
     ) -> None:
         """Fit the calibration using target and source CCS values."""
-        if target is None:
+        if peptidoforms_target is None and observed_ccs_target is None:
             if self.reference_psm_list is None:
                 LOGGER.debug("No reference PSMList provided, loading default reference dataset.")
-                target = self.get_default_reference(multi=multi)
+                peptidoforms_target, observed_ccs_target = self.get_default_reference(multi=multi)
             else:
-                target = self.reference_psm_list
+                peptidoforms_target = np.array(
+                    [psm.peptidoform for psm in self.reference_psm_list]
+                )
+                observed_ccs_target = np.array(
+                    [psm.metadata["CCS"] for psm in self.reference_psm_list],
+                    dtype=np.float32,
+                )
+        # if only one of peptidoforms_target or observed_ccs_target is None, raise error
+        elif peptidoforms_target is None or observed_ccs_target is None:
+            raise CalibrationError(
+                "Both peptidoforms_target and observed_ccs_target must be provided together."
+            )
         LOGGER.debug("Calculating calibration parameters...")
 
         if self.per_charge:
             # For per-charge calibration, calculate shifts for all charges
             LOGGER.debug("Calculating shift factors per charge state...")
             try:
-                self.charge_shifts = self.calculate_ccs_shift(target, source)
+                self.charge_shifts = self.calculate_ccs_shift(
+                    peptidoforms_target,
+                    observed_ccs_target,
+                    peptidoforms_source,
+                    observed_ccs_source,
+                )
                 LOGGER.debug(f"Calculated charge-specific shifts: {self.charge_shifts}")
             except CalibrationError as e:
                 LOGGER.warning(
@@ -113,7 +131,13 @@ class LinearCCSCalibration(Calibration):
 
             # Also calculate a general shift for reference (using charge 2 as default)
             try:
-                self.general_shift = self._compute_ccs_shift(source, target, 2)
+                self.general_shift = self._compute_ccs_shift(
+                    peptidoforms_target,
+                    observed_ccs_target,
+                    peptidoforms_source,
+                    observed_ccs_source,
+                    2,
+                )
             except Exception:
                 # If charge 2 fails, try to get any available charge
                 available_charges = [
@@ -126,7 +150,12 @@ class LinearCCSCalibration(Calibration):
         else:
             # For global calibration, calculate a single shift
             try:
-                self.general_shift = self.calculate_ccs_shift(target, source)
+                self.general_shift = self.calculate_ccs_shift(
+                    peptidoforms_target,
+                    observed_ccs_target,
+                    peptidoforms_source,
+                    observed_ccs_source,
+                )
             except CalibrationError as e:
                 LOGGER.warning(
                     f"Could not calculate general shift factor: {e}. Using 0.0 as fallback."
@@ -139,16 +168,20 @@ class LinearCCSCalibration(Calibration):
 
     def transform(
         self,
-        source: PSMList,
-    ) -> PSMList:
+        peptidoforms: np.ndarray,
+        predicted_ccs: np.ndarray,
+    ) -> np.ndarray:
         """Transform source CCS into the calibrated target space."""
         if not self.is_fitted:
             raise CalibrationError("Calibration has not been fitted yet.")
 
-        calibrated_source = source.copy()
-        for idx, psm in enumerate(calibrated_source):
-            charge = psm.peptidoform.precursor_charge
-            ccs = psm.metadata["predicted_CCS"]
+        predicted_ccs_calibrated = []
+        for pf, ccs in zip(peptidoforms, predicted_ccs):
+            if isinstance(pf, Peptidoform):
+                charge = pf.precursor_charge
+            else:
+                charge = str(pf).split("/")[-1]
+            charge = int(charge)
             if self.per_charge and charge in self.charge_shifts:
                 shift = self.charge_shifts[charge]
             else:
@@ -157,24 +190,29 @@ class LinearCCSCalibration(Calibration):
                     f"using general shift factor: {self.general_shift}."
                 )
                 shift = cast(float, self.general_shift)
-            calibrated_source[idx].metadata["uncalibrated_predicted_CCS"] = ccs
-            calibrated_source[idx].metadata["predicted_CCS"] = ccs + shift
-        return calibrated_source
+            predicted_ccs_calibrated.append(ccs + shift)
+        return np.array(predicted_ccs_calibrated)
 
     def calculate_ccs_shift(
         self,
-        target: PSMList,
-        source: PSMList,
+        target_peptidoforms: np.ndarray,
+        target_ccs: np.ndarray,
+        source_peptidoforms: np.ndarray,
+        source_ccs: np.ndarray,
     ) -> dict[int, float] | float:
         """
         Calculate CCS shift factors between target and source PSMLists.
 
         Parameters
         ----------
-        target
-            Reference PSMList with target CCS values.
-        source
-            PSMList with source CCS values to be calibrated.
+        target_peptidoforms
+            Peptidoforms from the target PSMList.
+        target_ccs
+            Observed CCS values from the target PSMList.
+        source_peptidoforms
+            Peptidoforms from the source PSMList.
+        source_ccs
+            Predicted CCS values from the source PSMList.
 
         Returns
         -------
@@ -203,12 +241,23 @@ class LinearCCSCalibration(Calibration):
                     "No charge state specified for global calibration. Using default charge state 2 for global shift calculation."
                 )
 
-            shift_factor = self._compute_ccs_shift(source, target, self.use_charge_state)
+            shift_factor = self._compute_ccs_shift(
+                target_peptidoforms,
+                target_ccs,
+                source_peptidoforms,
+                source_ccs,
+                self.use_charge_state,
+            )
             LOGGER.debug(f"Global CCS shift factor: {shift_factor:.3f}")
             return shift_factor
         else:
             # Per-charge calibration
-            shift_factor_dict = self._compute_ccs_shift_per_charge(source, target)
+            shift_factor_dict = self._compute_ccs_shift_per_charge(
+                target_peptidoforms,
+                target_ccs,
+                source_peptidoforms,
+                source_ccs,
+            )
             # For any missing charge states, use 0.0 as fallback
             for charge in range(1, 7):
                 if charge not in shift_factor_dict or shift_factor_dict[charge] is None:
@@ -246,27 +295,41 @@ class LinearCCSCalibration(Calibration):
         reference_dataset = pd.read_csv(
             reference_data_path, compression="gzip", keep_default_na=False
         )
-        ## TODO: this is quite slow, converting this to PSMList is probably slower than converting .to_dataframe and working from there,
-        self.reference_psm_list = parse_input(reference_dataset)
-        LOGGER.debug(f"Loaded {len(self.reference_psm_list)} PSMs from default reference dataset")
-        return self.reference_psm_list
+        reference_peptidoforms = reference_dataset["peptidoform"].tolist()
+        reference_ccs = reference_dataset["CCS"].astype(np.float32).to_numpy()
+        return reference_peptidoforms, reference_ccs
 
     @staticmethod
-    def _compute_ccs_shift(source, target, charge_state: int) -> float:
+    def _compute_ccs_shift(
+        target_peptidoforms,
+        target_ccs,
+        source_peptidoforms,
+        source_ccs,
+        charge_state: int,
+    ) -> float:
         """Compute CCS shift for a specific charge state."""
-        source_ccs = []
-        target_ccs = []
+        # Build dictionaries only for peptides with the specified charge state
+        source_dict = {}
+        for i in range(len(source_peptidoforms)):
+            pf = source_peptidoforms[i]
+            # Extract charge from peptidoform (format: SEQUENCE/CHARGE)
+            charge = int(pf.precursor_charge)
+            if charge == charge_state:
+                source_dict[pf.proforma] = float(source_ccs[i])
 
-        source_dict = {
-            psm.peptidoform.sequence: float(psm.metadata["CCS"])
-            for psm in source
-            if psm.peptidoform.precursor_charge == charge_state and "CCS" in psm.metadata
-        }
-        target_dict = {
-            psm.peptidoform.sequence: float(psm.metadata["CCS"])
-            for psm in target
-            if psm.peptidoform.precursor_charge == charge_state and "CCS" in psm.metadata
-        }
+        target_dict = {}
+        for i in range(len(target_peptidoforms)):
+            pf = target_peptidoforms[i]
+            # Extract charge from peptidoform (format: SEQUENCE/CHARGE)
+            if isinstance(pf, Peptidoform):
+                charge = int(pf.precursor_charge)
+            else:
+                charge = int(str(pf).split("/")[-1])
+            if charge == charge_state:
+                if isinstance(pf, Peptidoform):
+                    target_dict[pf.proforma] = float(target_ccs[i])
+                else:
+                    target_dict[str(pf)] = float(target_ccs[i])
 
         overlapping_peptides = set(source_dict.keys()).intersection(set(target_dict.keys()))
 
@@ -284,14 +347,16 @@ class LinearCCSCalibration(Calibration):
                 "Shift calculation may be unreliable."
             )
 
+        source_ccs_list = []
+        target_ccs_list = []
         for peptide in overlapping_peptides:
-            source_ccs.append(source_dict[peptide])
-            target_ccs.append(target_dict[peptide])
+            source_ccs_list.append(source_dict[peptide])
+            target_ccs_list.append(target_dict[peptide])
 
-        source_ccs = np.array(source_ccs)
-        target_ccs = np.array(target_ccs)
+        source_ccs_array = np.array(source_ccs_list, dtype=np.float64)
+        target_ccs_array = np.array(target_ccs_list, dtype=np.float64)
 
-        shift = np.mean(target_ccs - source_ccs)
+        shift = np.mean(target_ccs_array - source_ccs_array)
 
         if abs(shift) > 100.0:
             LOGGER.warning(
@@ -301,16 +366,22 @@ class LinearCCSCalibration(Calibration):
         return float(shift)
 
     @staticmethod
-    def _compute_ccs_shift_per_charge(source, target) -> dict[int, float]:
+    def _compute_ccs_shift_per_charge(
+        target_peptidoforms, target_ccs, source_peptidoforms, source_ccs
+    ) -> dict[int, float]:
         """
         Calculate CCS shift factors per charge state.
 
         Parameters
         ----------
-        source
-            PSMList with source CCS values to be calibrated.
-        target
-            Reference PSMList with target CCS values.
+        target_peptidoforms
+            Peptidoforms from the target PSMList.
+        target_ccs
+            Observed CCS values from the target PSMList.
+        source_peptidoforms
+            Peptidoforms from the source PSMList.
+        source_ccs
+            Predicted CCS values from the source PSMList.
 
         Returns
         -------
@@ -322,11 +393,16 @@ class LinearCCSCalibration(Calibration):
         CalibrationError
             If no overlapping peptides are found for any charge state.
         """
+        source_charges = np.array(
+            [int(peptidoform.precursor_charge) for peptidoform in source_peptidoforms]
+        )
         shift_factors = {}
-        charges_in_source = set(psm.peptidoform.precursor_charge for psm in source)
+        charges_in_source = set(source_charges)
 
         for charge in charges_in_source:
-            shift = LinearCCSCalibration._compute_ccs_shift(source, target, charge)
+            shift = LinearCCSCalibration._compute_ccs_shift(
+                target_peptidoforms, target_ccs, source_peptidoforms, source_ccs, charge
+            )
             if shift == np.nan:
                 LOGGER.warning(f"No valid CCS shift calculated for charge state {charge}.")
             shift_factors[charge] = shift

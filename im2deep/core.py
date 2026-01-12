@@ -99,9 +99,26 @@ def predict_and_calibrate(
         predict_kwargs=predict_kwargs,
     )
 
-    # Assign the predicted CCS to the PSM metadata for calibration
+    # Assign the predicted CCS to the PSM metadata
     for idx, psm in enumerate(psm_list):
-        psm.metadata["predicted_CCS"] = predicted_ccs[idx]
+        psm.metadata["predicted_CCS_uncalibrated"] = predicted_ccs[idx]
+
+    peptidoforms = [psm.peptidoform for psm in psm_list]
+    peptidoforms_cal = [psm.peptidoform for psm in psm_list_cal]
+    observed_ccs_cal = np.array(
+        [psm.metadata["CCS"] for psm in psm_list_cal],
+        dtype=np.float32,
+    )
+    if psm_list_reference is not None:
+        psm_list_reference = validate_psm_list(psm_list_reference, needs_target=True)
+        peptidoforms_ref = [psm.peptidoform for psm in psm_list_reference]
+        observed_ccs_ref = np.array(
+            [psm.metadata["CCS"] for psm in psm_list_reference],
+            dtype=np.float32,
+        )
+    else:
+        peptidoforms_ref = None
+        observed_ccs_ref = None
 
     # Perform calibration
     if calibration is None:
@@ -119,15 +136,21 @@ def predict_and_calibrate(
                 "Calibration PSM list contains decoy PSMs. "
                 "These will be ignored during calibration fitting."
             )
-        calibration.fit(psm_list_cal, multi=multi)
+        calibration.fit(
+            peptidoforms_cal,
+            observed_ccs_cal,
+            peptidoforms_target=peptidoforms_ref,
+            observed_ccs_target=observed_ccs_ref,
+            multi=multi,
+        )
     else:
         LOGGER.info("Calibration is already fitted, skipping fitting step.")
 
     # Apply calibration to predictions
-    psm_list_calibrated = calibration.transform(psm_list)
+    predicted_ccs_calibrated = calibration.transform(peptidoforms, predicted_ccs)
 
     return np.array(
-        [psm.metadata["predicted_CCS"] for psm in psm_list_calibrated],
+        predicted_ccs_calibrated,
         dtype=np.float32,
     )
 
