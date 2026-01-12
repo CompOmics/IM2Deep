@@ -18,7 +18,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 requires-python = ">=3.10"
-dependencies = ["click", "deeplc<4", "psm_utils", "pandas", "numpy", "rich"]
+dependencies = ["click", "deeplc", "psm_utils", "pandas", "numpy", "rich", "torch", "pytorch-lightning"]
 
 [project.optional-dependencies]
 dev = [

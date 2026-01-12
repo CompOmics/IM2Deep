@@ -52,7 +52,6 @@ from im2deep.utils import (
     setup_logging,
     parse_input,
     build_credits,
-    check_optional_dependencies,
     write_output,
     infer_output_name,
     DefaultCommandGroup,
@@ -123,7 +122,7 @@ def cli(ctx, logging_level):
     "--multi",
     is_flag=True,
     default=False,
-    help="Enable multi-conformer prediction. Requires optional dependencies: pip install 'im2deep[er]'",
+    help="Enable multi-conformer prediction.",
 )
 @click.option(
     "-n",
@@ -179,10 +178,6 @@ def predict(*args, **kwargs):
         f"calibration_precursors={kwargs.get('calibration_precursors')}, multi={kwargs.get('multi')}, "
         f"ion_mobility={kwargs.get('ion_mobility')}"
     )
-
-    # Check optional dependencies if multi-conformer requested
-    if kwargs.get("multi"):
-        check_optional_dependencies()
 
     # Parse input files
     LOGGER.info("Parsing input files...")
@@ -321,10 +316,6 @@ def main():
 #         # Import main functionality (after logging setup)
 #         from im2deep._exceptions import IM2DeepError
 #         from im2deep.im2deep import predict_ccs
-
-#         # Check optional dependencies if multi-conformer requested
-#         if multi:
-#             check_optional_dependencies()
 
 #         # Validate input files
 #         _validate_file_format(psm_file, "input")

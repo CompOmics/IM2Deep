@@ -216,29 +216,6 @@ def ccs2im(
     return ((np.sqrt(reduced_mass * (temp + t_diff))) * ccs) / (SUMMARY_CONSTANT * charge)
 
 
-def check_optional_dependencies() -> None:
-    """
-    Check if optional dependencies for multi-conformer prediction are available.
-
-    Raises
-    ------
-    SystemExit
-        If required dependencies are missing
-    """
-    try:
-        import torch
-        import im2deeptrainer
-
-        LOGGER.debug("Optional dependencies for multi-conformer prediction found")
-    except ImportError:
-        LOGGER.error(
-            "Multi-conformer prediction requires optional dependencies.\n"
-            "Please install IM2Deep with optional dependencies:\n"
-            "pip install 'im2deep[er]'"
-        )
-        sys.exit(1)
-
-
 def parse_input(
     input_file: str | Path | PSMList | pd.DataFrame, filetype: str | None = None
 ) -> PSMList:
