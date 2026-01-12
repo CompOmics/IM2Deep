@@ -268,15 +268,19 @@ def predict(*args, **kwargs):
     if kwargs.get("calibration_precursors"):
         LOGGER.info("Calibration file provided, performing calibration and prediction...")
         psm_list_cal = parse_input(kwargs.get("calibration_precursors"))
-        core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
+        predictions = core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
     else:
         LOGGER.info(
             "No calibration file provided (calibration is HIGHLY recommended), performing prediction only..."
         )
-        core.predict(*args, **kwargs)
+        predictions = core.predict(*args, **kwargs)
 
     # Output results
-    # CONTINUE HERE
+    LOGGER.info("IM2Deep CCS prediction completed successfully!")
+    output_name = kwargs.pop("output_file")
+    output_name = _infer_output_name(kwargs["precursors"], output_name).with_suffix(".csv")
+    LOGGER.info(f"Writing output file to {output_name}...")
+    write_output(output_name, predictions, psm_list, kwargs.get("ion_mobility", False))
 
 
 # TODO: implement train command
