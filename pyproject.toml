@@ -18,7 +18,7 @@ classifiers = [
 ]
 dynamic = ["version"]
 requires-python = ">=3.10"
-dependencies = ["click", "deeplc", "psm_utils", "pandas", "numpy", "rich", "torch", "lightning"]
+dependencies = ["click", "deeplc", "psm_utils", "pandas", "numpy", "rich", "torch", "lightning", "im2deeptrainer"]
 
 [project.optional-dependencies]
 dev = [
@@ -40,7 +40,6 @@ docs = [
     "sphinx_rtd_theme>=1.2",
     "sphinx-autobuild>=2021.3",
 ]
-er = ["im2deeptrainer", "torch==2.3.0"]
 
 [project.urls]
 GitHub = "https://github.com/CompOmics/IM2Deep"
