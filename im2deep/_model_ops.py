@@ -140,7 +140,14 @@ def _predict_loop(
         for features, _ in track(data_loader, description="Predicting", transient=True):
             features = [feature_tensor.to(device) for feature_tensor in features]
             outputs = model(*features)
-            all_predictions.append(outputs.cpu())
+            if not isinstance(outputs, tuple):
+                # Single output
+                all_predictions.append(outputs.cpu())
+            else:
+                # Multi-output: stack both predictions side by side
+                stacked = torch.stack([outputs[0], outputs[1]], dim=1)
+                all_predictions.append(stacked.cpu())
+
     return torch.cat(all_predictions, dim=0).squeeze()
 
 

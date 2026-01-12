@@ -204,6 +204,12 @@ class LinearCCSCalibration(Calibration):
         shifts = np.array(
             [self.charge_shifts.get(c, self.general_shift) for c in charges], dtype=np.float32
         )
+        
+        # Handle both single-output and multi-output predictions
+        if predicted_ccs.ndim == 2:
+            # Multi-output: reshape shifts to broadcast correctly
+            shifts = shifts.reshape(-1, 1)
+        
         predicted_ccs_calibrated = predicted_ccs + shifts
 
         return predicted_ccs_calibrated
