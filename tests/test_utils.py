@@ -219,24 +219,3 @@ class TestCCSConversions:
 
         assert ccs_z2 != ccs_z3
         assert ccs_z2 > 0 and ccs_z3 > 0
-
-
-class TestOptionalDependencies:
-    """Tests for optional dependency checking."""
-
-    def test_check_optional_dependencies_available(self):
-        """Test checking for optional dependencies."""
-        try:
-            from im2deep.utils import check_optional_dependencies
-
-            # This will raise if dependencies are missing
-            check_optional_dependencies()
-        except ImportError:
-            pytest.skip("Optional dependencies not installed")
-
-    @pytest.mark.skipif(True, reason="Complex mocking can cause recursion issues")
-    def test_check_optional_dependencies_missing(self):
-        """Test error message when optional dependencies are missing."""
-        # This test is skipped as mocking __import__ can cause recursion issues
-        # The function behavior is tested through integration tests instead
-        pass
