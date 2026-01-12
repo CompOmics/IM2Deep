@@ -139,8 +139,8 @@ def predict_and_calibrate(
         calibration.fit(
             peptidoforms_cal,
             observed_ccs_cal,
-            peptidoforms_target=peptidoforms_ref,
-            observed_ccs_target=observed_ccs_ref,
+            peptidoforms_source=peptidoforms_ref,
+            observed_ccs_source=observed_ccs_ref,
             multi=multi,
         )
     else:
