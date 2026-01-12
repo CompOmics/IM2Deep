@@ -10,11 +10,10 @@ import numpy as np
 from psm_utils.psm_list import PSMList
 import torch
 from deeplc.data import DeepLCDataset
-from deeplc.calibration import Calibration
 
 from im2deep.utils import validate_psm_list
 from im2deep import _model_ops
-from im2deep.calibration import LinearCCSCalibration
+from im2deep.calibration import LinearCCSCalibration, Calibration
 from im2deep.constants import DEFAULT_MODEL, DEFAULT_MULTI_MODEL
 
 LOGGER = logging.getLogger(__name__)

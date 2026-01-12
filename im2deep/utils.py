@@ -262,9 +262,30 @@ def parse_input(
     if isinstance(input_file, pd.DataFrame):
         LOGGER.debug(f"Parsing PSMs from provided DataFrame with {len(input_file)} rows.")
         list_of_precursors = []
+
+        # Check if it's legacy format (has seq/modifications/charge) or standard format (has peptidoform)
+        has_peptidoform = "peptidoform" in input_file.columns
+        has_legacy_cols = all(
+            col in input_file.columns for col in ["seq", "modifications", "charge"]
+        )
+
         for idx, row in input_file.iterrows():
             try:
-                precursor = PSM(peptidoform=row["peptidoform"], spectrum_id=idx)
+                if has_peptidoform:
+                    # Standard format with peptidoform column
+                    precursor = PSM(peptidoform=row["peptidoform"], spectrum_id=idx)
+                elif has_legacy_cols:
+                    # Legacy format - convert to peptidoform
+                    peptidoform = psm_utils.io.peptide_record.peprec_to_proforma(
+                        peptide=row["seq"],
+                        modifications=row["modifications"],
+                        charge=int(row["charge"]),
+                    )
+                    precursor = PSM(peptidoform=peptidoform, spectrum_id=idx)
+                else:
+                    LOGGER.warning("Row %d missing required columns. Skipping.", idx)
+                    continue
+
                 if "CCS" in row:
                     precursor.metadata["CCS"] = float(row["CCS"])
                 list_of_precursors.append(precursor)
@@ -392,7 +413,7 @@ def _parse_legacy_format(input_file: str | Path) -> PSMList:
     return psm_list
 
 
-def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
+def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     """
     Validate that the PSM list contains necessary fields. And homogenizes the data.
     Also removes entries with charge state higher than 6.
@@ -403,7 +424,19 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
         The PSM list to validate.
     needs_target : bool, optional
         Whether target IM or CCS values are required. Default is False.
+
+    Returns
+    -------
+    PSMList
+        The validated and filtered PSM list.
     """
+    # Check if it's a PSMList
+    if not isinstance(psm_list, PSMList):
+        raise IM2DeepError(
+            f"Expected PSMList, got {type(psm_list).__name__}. "
+            "Please provide a valid PSMList object."
+        )
+
     # Filter high charge states (IM2Deep predictions are not reliable for charges >6)
     original_size = len(psm_list)
     psm_list_filtered = PSMList(
@@ -436,12 +469,16 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> None:
                     psm.peptidoform.theoretical_mz,
                     psm.peptidoform.precursor_charge,
                 )
+            # Ensure CCS is always stored as float
+            elif psm.metadata.get("CCS") is not None:
+                ccs_value = psm.metadata["CCS"]
+                if not isinstance(ccs_value, float):
+                    psm.metadata["CCS"] = float(ccs_value)
 
     if needs_target and not all_has_targets:
         raise IM2DeepError("PSMList must contain 'ion_mobility' or 'CCS' metadata for all PSMs.")
 
-    else:
-        return psm_list_filtered
+    return psm_list_filtered
 
 
 class DefaultCommandGroup(click.Group):

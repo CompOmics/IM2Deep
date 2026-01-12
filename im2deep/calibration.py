@@ -193,12 +193,15 @@ class LinearCCSCalibration(Calibration):
 
         # Vectorized approach for speed
         # Extract charges for all peptidoforms at once
-        if len(peptidoforms) > 0 and isinstance(peptidoforms[0], Peptidoform):
-            charges = np.array([pf.precursor_charge for pf in peptidoforms], dtype=np.int32)
-        else:
-            charges = np.array(
-                [int(str(pf).split("/")[-1]) for pf in peptidoforms], dtype=np.int32
-            )
+        charges = []
+        for pf in peptidoforms:
+            if isinstance(pf, Peptidoform):
+                charges.append(pf.precursor_charge)
+            else:
+                # Parse from string representation
+                pf_str = str(pf)
+                charges.append(int(pf_str.split("/")[-1]))
+        charges = np.array(charges, dtype=np.int32)
 
         # Vectorized shift application
         shifts = np.array(
@@ -318,27 +321,33 @@ class LinearCCSCalibration(Calibration):
     ) -> float:
         """Compute CCS shift for a specific charge state."""
         # Extract charges vectorized
-        if len(source_peptidoforms) > 0 and isinstance(source_peptidoforms[0], Peptidoform):
-            source_charges = np.array(
-                [pf.precursor_charge for pf in source_peptidoforms], dtype=np.int32
-            )
-            source_keys = np.array([pf.proforma for pf in source_peptidoforms], dtype=object)
-        else:
-            source_charges = np.array(
-                [int(str(pf).split("/")[-1]) for pf in source_peptidoforms], dtype=np.int32
-            )
-            source_keys = np.array([str(pf) for pf in source_peptidoforms], dtype=object)
+        source_charges = []
+        source_keys = []
+        for pf in source_peptidoforms:
+            if isinstance(pf, Peptidoform):
+                source_charges.append(pf.precursor_charge)
+                source_keys.append(pf.proforma)
+            else:
+                pf_str = str(pf)
+                source_charges.append(int(pf_str.split("/")[-1]))
+                source_keys.append(pf_str)
+        
+        source_charges = np.array(source_charges, dtype=np.int32)
+        source_keys = np.array(source_keys, dtype=object)
 
-        if len(target_peptidoforms) > 0 and isinstance(target_peptidoforms[0], Peptidoform):
-            target_charges = np.array(
-                [pf.precursor_charge for pf in target_peptidoforms], dtype=np.int32
-            )
-            target_keys = np.array([pf.proforma for pf in target_peptidoforms], dtype=object)
-        else:
-            target_charges = np.array(
-                [int(str(pf).split("/")[-1]) for pf in target_peptidoforms], dtype=np.int32
-            )
-            target_keys = np.array([str(pf) for pf in target_peptidoforms], dtype=object)
+        target_charges = []
+        target_keys = []
+        for pf in target_peptidoforms:
+            if isinstance(pf, Peptidoform):
+                target_charges.append(pf.precursor_charge)
+                target_keys.append(pf.proforma)
+            else:
+                pf_str = str(pf)
+                target_charges.append(int(pf_str.split("/")[-1]))
+                target_keys.append(pf_str)
+        
+        target_charges = np.array(target_charges, dtype=np.int32)
+        target_keys = np.array(target_keys, dtype=object)
 
         # Filter by charge state using boolean indexing (much faster)
         source_mask = source_charges == charge_state
@@ -425,13 +434,15 @@ class LinearCCSCalibration(Calibration):
         CalibrationError
             If no overlapping peptides are found for any charge state.
         """
-        source_charges = np.array(
-            (
-                [int(peptidoform.precursor_charge) for peptidoform in source_peptidoforms]
-                if all(isinstance(peptidoform, Peptidoform) for peptidoform in source_peptidoforms)
-                else [int(str(peptidoform).split("/")[-1]) for peptidoform in source_peptidoforms]
-            ),
-        )
+        source_charges = []
+        for pf in source_peptidoforms:
+            if isinstance(pf, Peptidoform):
+                source_charges.append(int(pf.precursor_charge))
+            else:
+                pf_str = str(pf)
+                source_charges.append(int(pf_str.split("/")[-1]))
+        
+        source_charges = np.array(source_charges, dtype=np.int32)
         shift_factors = {}
         charges_in_source = set(source_charges)
 

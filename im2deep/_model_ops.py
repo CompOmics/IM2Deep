@@ -63,6 +63,7 @@ def load_model(
     # Ensure the model is on the specified device
     if isinstance(loaded_model, torch.nn.Module):
         loaded_model.to(selected_device)
+        loaded_model.eval()  # Set model to evaluation mode
     else:
         raise TypeError(
             f"Loaded model is not a PyTorch Module, got {type(loaded_model)} instead. "
@@ -102,6 +103,10 @@ def predict(
         Predictions.
 
     """
+    # Check data first before loading model
+    if data is None:
+        raise ValueError("Data must be provided for prediction.")
+
     # TODO: implement custom model inference
     LOGGER.debug("Loading model for prediction.")
     model = _get_architecture(
@@ -113,9 +118,6 @@ def predict(
     )
     model.to(device)
     LOGGER.debug(f"Model loaded on device: {device}")
-
-    if data is None:
-        raise ValueError("Data must be provided for prediction.")
 
     data_loader = DataLoader(
         data,
