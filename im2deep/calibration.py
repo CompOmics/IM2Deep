@@ -136,11 +136,11 @@ class LinearCCSCalibration(Calibration):
                     or self.charge_shifts[charge] == 0.0
                 ):
                     no_shift_calculated.append(charge)
+                    self.charge_shifts[charge] = float(self.general_shift)
             LOGGER.debug(
                 f"No shift factor calculated for charge states: {no_shift_calculated}. "
                 f"Using general shift: {self.general_shift:.3f}."
             )
-            self.charge_shifts[charge] = float(self.general_shift)
         else:
             # For global calibration, calculate a single shift
             try:
