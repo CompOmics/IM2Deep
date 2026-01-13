@@ -2,9 +2,10 @@
 
 import pytest
 import numpy as np
-from psm_utils import Peptidoform
+import pandas as pd
+from psm_utils import Peptidoform, PSM, PSMList
 
-from im2deep.calibration import LinearCCSCalibration
+from im2deep.calibration import LinearCCSCalibration, get_default_reference
 from im2deep._exceptions import CalibrationError
 
 
@@ -31,15 +32,20 @@ class TestLinearCCSCalibration:
         """Test fitting with per-charge calibration."""
         calibration = LinearCCSCalibration(per_charge=True)
 
-        # Create reference data
-        ref_peptidoforms = sample_peptidoforms.copy()
-        ref_ccs = sample_ccs_values.copy()
+        # Create DataFrames for target and source
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_predicted_ccs
+        })
 
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=ref_peptidoforms,
-            observed_ccs_source=sample_predicted_ccs,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
         assert calibration.is_fitted is True
@@ -50,14 +56,19 @@ class TestLinearCCSCalibration:
         """Test fitting with global calibration."""
         calibration = LinearCCSCalibration(per_charge=False, use_charge_state=2)
 
-        ref_peptidoforms = sample_peptidoforms.copy()
-        ref_ccs = sample_predicted_ccs.copy()
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_predicted_ccs
+        })
 
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=ref_peptidoforms,
-            observed_ccs_source=ref_ccs,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
         assert calibration.is_fitted is True
@@ -70,21 +81,31 @@ class TestLinearCCSCalibration:
         """Test transforming single-output predictions."""
         calibration = LinearCCSCalibration(per_charge=True)
 
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_predicted_ccs
+        })
+
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=sample_peptidoforms.copy(),
-            observed_ccs_source=sample_predicted_ccs,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
-        calibrated = calibration.transform(
-            peptidoforms=sample_peptidoforms,
-            predicted_ccs=sample_predicted_ccs,
-        )
+        # Transform with predictions in metadata
+        transform_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in sample_predicted_ccs]
+        })
+        
+        calibrated = calibration.transform(transform_df)
 
-        assert calibrated.shape == sample_predicted_ccs.shape
+        assert len(calibrated) == len(sample_predicted_ccs)
         assert isinstance(calibrated, np.ndarray)
-        assert calibrated.dtype == np.float32
 
     def test_transform_multi_output(
         self, sample_peptidoforms, sample_ccs_values, sample_predicted_ccs_multi
@@ -92,47 +113,62 @@ class TestLinearCCSCalibration:
         """Test transforming multi-output predictions."""
         calibration = LinearCCSCalibration(per_charge=True)
 
-        # Fit with single output
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_ccs_values - 2.0  # Simulate shift
+        })
+
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=sample_peptidoforms.copy(),
-            observed_ccs_source=sample_ccs_values - 2.0,  # Simulate shift
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
-        # Transform multi-output
-        calibrated = calibration.transform(
-            peptidoforms=sample_peptidoforms,
-            predicted_ccs=sample_predicted_ccs_multi,
-        )
+        # Transform multi-output with arrays in metadata
+        transform_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in sample_predicted_ccs_multi]
+        })
+        
+        calibrated = calibration.transform(transform_df)
 
-        assert calibrated.shape == sample_predicted_ccs_multi.shape
-        assert calibrated.ndim == 2
-        assert calibrated.shape[1] == 2  # Two conformers
+        assert len(calibrated) == len(sample_predicted_ccs_multi)
         assert isinstance(calibrated, np.ndarray)
+        # Check that arrays are preserved for multiconformer
+        assert isinstance(calibrated[0], np.ndarray)
+        assert len(calibrated[0]) == 2  # Two conformers
 
     def test_transform_not_fitted(self, sample_peptidoforms, sample_predicted_ccs):
         """Test transform raises error when not fitted."""
         calibration = LinearCCSCalibration()
 
+        transform_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in sample_predicted_ccs]
+        })
+
         with pytest.raises(CalibrationError, match="not been fitted"):
-            calibration.transform(
-                peptidoforms=sample_peptidoforms,
-                predicted_ccs=sample_predicted_ccs,
-            )
+            calibration.transform(transform_df)
 
     def test_calculate_ccs_shift_no_overlap(self):
         """Test shift calculation with no overlapping peptides."""
         calibration = LinearCCSCalibration(per_charge=False, use_charge_state=2)
 
-        target_peptidoforms = [Peptidoform("PEPTIDE/2")]
-        target_ccs = np.array([450.0])
-        source_peptidoforms = [Peptidoform("DIFFERENT/2")]
-        source_ccs = np.array([460.0])
+        target_df = pd.DataFrame({
+            'peptidoform': [Peptidoform("PEPTIDE/2")],
+            'metadata': [{'CCS': 450.0}]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': [Peptidoform("DIFFERENT/2")],
+            'CCS': [460.0]
+        })
 
-        shift = calibration.calculate_ccs_shift(
-            target_peptidoforms, target_ccs, source_peptidoforms, source_ccs
-        )
+        shift = calibration.calculate_ccs_shift(target_df, source_df)
 
         assert shift == 0.0  # No overlap returns 0.0
 
@@ -141,12 +177,18 @@ class TestLinearCCSCalibration:
         calibration = LinearCCSCalibration(per_charge=False, use_charge_state=2)
 
         peptidoforms = [Peptidoform("PEPTIDE/2"), Peptidoform("SEQUENCE/2")]
-        target_ccs = np.array([450.0, 520.0])
-        source_ccs = np.array([445.0, 515.0])
+        
+        target_df = pd.DataFrame({
+            'peptidoform': peptidoforms,
+            'metadata': [{'CCS': 450.0}, {'CCS': 520.0}]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': peptidoforms,
+            'CCS': [445.0, 515.0]
+        })
 
-        shift = calibration.calculate_ccs_shift(
-            peptidoforms, target_ccs, list(peptidoforms), source_ccs
-        )
+        shift = calibration.calculate_ccs_shift(target_df, source_df)
 
         assert isinstance(shift, float)
         assert abs(shift - 5.0) < 0.1  # Should be approximately 5.0
@@ -158,12 +200,18 @@ class TestLinearCCSCalibration:
             Peptidoform("SEQUENCE/3"),
             Peptidoform("TEST/2"),
         ]
-        target_ccs = np.array([450.0, 520.0, 480.0])
-        source_ccs = np.array([445.0, 515.0, 475.0])
+        
+        target_df = pd.DataFrame({
+            'peptidoform': peptidoforms,
+            'metadata': [{'CCS': 450.0}, {'CCS': 520.0}, {'CCS': 480.0}]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': peptidoforms,
+            'CCS': [445.0, 515.0, 475.0]
+        })
 
-        shifts = LinearCCSCalibration._compute_ccs_shift_per_charge(
-            peptidoforms, target_ccs, list(peptidoforms), source_ccs
-        )
+        shifts = LinearCCSCalibration._compute_ccs_shift_per_charge(target_df, source_df)
 
         assert isinstance(shifts, dict)
         assert 2 in shifts
@@ -175,11 +223,19 @@ class TestLinearCCSCalibration:
         """Test that missing charges are filled with general shift."""
         calibration = LinearCCSCalibration(per_charge=True)
 
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_ccs_values - 5.0
+        })
+
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=sample_peptidoforms.copy(),
-            observed_ccs_source=sample_ccs_values - 5.0,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
         # Check that charges 1-6 are all filled
@@ -191,13 +247,18 @@ class TestLinearCCSCalibration:
         """Test that invalid charge state raises error."""
         calibration = LinearCCSCalibration(per_charge=False, use_charge_state=10)
 
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_ccs_values
+        })
+
         with pytest.raises(CalibrationError, match="Invalid charge state"):
-            calibration.calculate_ccs_shift(
-                sample_peptidoforms,
-                sample_ccs_values,
-                sample_peptidoforms.copy(),
-                sample_ccs_values,
-            )
+            calibration.calculate_ccs_shift(target_df, source_df)
 
     def test_shift_broadcasting(self, sample_peptidoforms):
         """Test that shifts broadcast correctly for multi-output."""
@@ -210,37 +271,49 @@ class TestLinearCCSCalibration:
 
         # Test single output
         single_pred = np.array([450.0, 520.0, 480.0], dtype=np.float32)
-        single_cal = calibration.transform(sample_peptidoforms, single_pred)
-        assert single_cal.shape == (3,)
+        single_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in single_pred]
+        })
+        single_cal = calibration.transform(single_df)
+        assert len(single_cal) == 3
 
         # Test multi output
         multi_pred = np.array([[450.0, 452.0], [520.0, 524.0], [480.0, 482.0]], dtype=np.float32)
-        multi_cal = calibration.transform(sample_peptidoforms, multi_pred)
-        assert multi_cal.shape == (3, 2)
+        multi_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in multi_pred]
+        })
+        multi_cal = calibration.transform(multi_df)
+        assert len(multi_cal) == 3
+        # Check arrays are preserved
+        assert isinstance(multi_cal[0], np.ndarray)
+        assert len(multi_cal[0]) == 2
 
     def test_get_default_reference(self):
         """Test loading default reference dataset."""
-        calibration = LinearCCSCalibration()
-
         try:
-            peptidoforms, ccs_values = calibration.get_default_reference(multi=False)
-            assert len(peptidoforms) > 0
-            assert len(ccs_values) > 0
-            assert len(peptidoforms) == len(ccs_values)
+            reference_df = get_default_reference(multi=False)
+            assert isinstance(reference_df, pd.DataFrame)
+            assert 'peptidoform' in reference_df.columns
+            assert 'CCS' in reference_df.columns
+            assert len(reference_df) > 0
         except FileNotFoundError:
             pytest.skip("Default reference dataset not found")
 
     def test_large_shift_warning(self, caplog):
         """Test that large shifts trigger a warning."""
-        calibration = LinearCCSCalibration(per_charge=False, use_charge_state=2)
+        target_df = pd.DataFrame({
+            'peptidoform': [Peptidoform("PEPTIDE/2")],
+            'metadata': [{'CCS': 450.0}]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': [Peptidoform("PEPTIDE/2")],
+            'CCS': [300.0]  # Large difference
+        })
 
-        peptidoforms = [Peptidoform("PEPTIDE/2")]
-        target_ccs = np.array([450.0])
-        source_ccs = np.array([300.0])  # Large difference
-
-        shift = LinearCCSCalibration._compute_ccs_shift(
-            peptidoforms, target_ccs, list(peptidoforms), source_ccs, 2
-        )
+        shift = LinearCCSCalibration._compute_ccs_shift(target_df, source_df, 2)
 
         assert abs(shift) > 100
         assert any("unusually large" in record.message.lower() for record in caplog.records)
