@@ -174,11 +174,14 @@ class LinearCCSCalibration(Calibration):
         if "peptidoform" not in psm_df.columns:
             raise CalibrationError("Input DataFrame must contain 'peptidoform' column.")
 
-        psm_df["predicted_CCS_uncalibrated"] = psm_df["metadata"].apply(
-            lambda x: (
-                x["predicted_CCS_uncalibrated"] if "predicted_CCS_uncalibrated" in x else np.nan
+        if not "predicted_CCS_uncalibrated" in psm_df.columns and "metadata" in psm_df.columns:
+            psm_df["predicted_CCS_uncalibrated"] = psm_df["metadata"].apply(
+                lambda x: (
+                    x["predicted_CCS_uncalibrated"]
+                    if "predicted_CCS_uncalibrated" in x
+                    else np.nan
+                )
             )
-        )
 
         # Extract charge from peptidoform column efficiently
         psm_df["charge"] = psm_df["peptidoform"].apply(
@@ -191,7 +194,7 @@ class LinearCCSCalibration(Calibration):
         else:
             # Global calibration - use same shift for all
             psm_df["shift"] = self.general_shift
-        
+
         # Apply shift, handling both scalar and array CCS values (for multiconformer predictions)
         def apply_shift(ccs_value, shift_value):
             if isinstance(ccs_value, (list, np.ndarray)):
@@ -200,10 +203,9 @@ class LinearCCSCalibration(Calibration):
             else:
                 # Single value
                 return float(ccs_value + shift_value)
-        
+
         psm_df["calibrated_CCS"] = psm_df.apply(
-            lambda row: apply_shift(row["predicted_CCS_uncalibrated"], row["shift"]), 
-            axis=1
+            lambda row: apply_shift(row["predicted_CCS_uncalibrated"], row["shift"]), axis=1
         )
 
         # Return as numpy object array to preserve multiconformer arrays
@@ -298,7 +300,7 @@ class LinearCCSCalibration(Calibration):
 
         target_work["peptide_key"] = target_work["peptidoform"].apply(get_peptide_key)
         target_work["charge"] = target_work["peptidoform"].apply(get_charge)
-        
+
         # Extract CCS from metadata if it's not a direct column
         if "CCS" not in target_work.columns and "metadata" in target_work.columns:
             target_work["CCS"] = target_work["metadata"].apply(

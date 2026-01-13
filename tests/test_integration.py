@@ -2,6 +2,7 @@
 
 import pytest
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from psm_utils import PSM, PSMList, Peptidoform
 
@@ -46,28 +47,44 @@ class TestEndToEndWorkflow:
         """Test complete calibration workflow without prediction."""
         calibration = LinearCCSCalibration(per_charge=True)
 
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_predicted_ccs
+        })
+
         # Fit calibration
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=sample_peptidoforms.copy(),
-            observed_ccs_source=sample_predicted_ccs,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
         assert calibration.is_fitted
 
         # Transform predictions
-        calibrated = calibration.transform(
-            peptidoforms=sample_peptidoforms,
-            predicted_ccs=sample_predicted_ccs,
-        )
+        transform_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in sample_predicted_ccs]
+        })
+        
+        calibrated = calibration.transform(transform_df)
 
         assert len(calibrated) == len(sample_predicted_ccs)
-        assert np.all(calibrated > 0)
+        # All values should be positive (scalars or arrays)
+        for val in calibrated:
+            if isinstance(val, np.ndarray):
+                assert np.all(val > 0)
+            else:
+                assert val > 0
 
-        # Calibrated values should be closer to targets
+        # Calibrated values should be closer to targets (compare scalars)
+        calibrated_scalars = np.array([v if not isinstance(v, np.ndarray) else v[0] for v in calibrated])
         original_error = np.mean(np.abs(sample_predicted_ccs - sample_ccs_values))
-        calibrated_error = np.mean(np.abs(calibrated - sample_ccs_values))
+        calibrated_error = np.mean(np.abs(calibrated_scalars - sample_ccs_values))
         assert calibrated_error <= original_error
 
     def test_multi_output_calibration_workflow(
@@ -76,23 +93,36 @@ class TestEndToEndWorkflow:
         """Test calibration workflow with multi-output predictions."""
         calibration = LinearCCSCalibration(per_charge=True)
 
+        target_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in sample_ccs_values]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'CCS': sample_ccs_values - 2.0
+        })
+
         # Fit with single output targets
         calibration.fit(
-            peptidoforms_target=sample_peptidoforms,
-            observed_ccs_target=sample_ccs_values,
-            peptidoforms_source=sample_peptidoforms.copy(),
-            observed_ccs_source=sample_ccs_values - 2.0,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
         # Transform multi-output predictions
-        calibrated = calibration.transform(
-            peptidoforms=sample_peptidoforms,
-            predicted_ccs=sample_predicted_ccs_multi,
-        )
+        transform_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in sample_predicted_ccs_multi]
+        })
+        
+        calibrated = calibration.transform(transform_df)
 
-        assert calibrated.shape == sample_predicted_ccs_multi.shape
-        assert calibrated.ndim == 2
-        assert np.all(calibrated > 0)
+        assert len(calibrated) == len(sample_predicted_ccs_multi)
+        # Check that arrays are preserved
+        for val in calibrated:
+            assert isinstance(val, np.ndarray)
+            assert len(val) == 2
+            assert np.all(val > 0)
 
     @pytest.mark.integration
     def test_file_parsing_to_prediction(self, tmp_path):
@@ -125,12 +155,20 @@ class TestEndToEndWorkflow:
         ccs_target = np.array([300.0, 400.0, 500.0, 600.0, 700.0])
         ccs_source = ccs_target - 5.0
 
+        target_df = pd.DataFrame({
+            'peptidoform': peptidoforms,
+            'metadata': [{'CCS': ccs} for ccs in ccs_target]
+        })
+        
+        source_df = pd.DataFrame({
+            'peptidoform': peptidoforms,
+            'CCS': ccs_source
+        })
+
         calibration = LinearCCSCalibration(per_charge=True)
         calibration.fit(
-            peptidoforms_target=peptidoforms,
-            observed_ccs_target=ccs_target,
-            peptidoforms_source=peptidoforms.copy(),
-            observed_ccs_source=ccs_source,
+            psm_df_target=target_df,
+            psm_df_source=source_df,
         )
 
         # All charges 1-6 should be covered (including extrapolation)
@@ -181,10 +219,17 @@ class TestDataConsistency:
         calibration.general_shift = 4.0
         calibration.fitted = True
 
-        result = calibration.transform(sample_peptidoforms, sample_predicted_ccs)
+        transform_df = pd.DataFrame({
+            'peptidoform': sample_peptidoforms,
+            'metadata': [{'predicted_CCS_uncalibrated': pred} for pred in sample_predicted_ccs]
+        })
+        
+        result = calibration.transform(transform_df)
 
-        assert result.shape == sample_predicted_ccs.shape
-        assert result.dtype == sample_predicted_ccs.dtype
+        assert len(result) == len(sample_predicted_ccs)
+        # Check that values are floats (not arrays for single output)
+        for val in result:
+            assert isinstance(val, (float, np.floating))
 
 
 class TestEdgeCases:
