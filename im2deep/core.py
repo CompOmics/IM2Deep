@@ -113,7 +113,14 @@ def predict_and_calibrate(
     # Perform calibration
     if calibration is None:
         LOGGER.info("No calibration provided, using LinearCCSCalibration by default.")
-        calibration = LinearCCSCalibration()
+        calibration = LinearCCSCalibration(
+            per_charge=kwargs.get("calibrate_per_charge", True),
+            use_charge_state=(
+                kwargs.get("use_charge_state", 2)
+                if not kwargs.get("calibrate_per_charge", True)
+                else None
+            ),
+        )
     elif not isinstance(calibration, Calibration):
         raise TypeError(
             f"Calibration must be an instance of Calibration, got {type(calibration)} instead."

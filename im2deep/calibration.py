@@ -112,37 +112,35 @@ class LinearCCSCalibration(Calibration):
                 )
                 self.charge_shifts = {charge: 0.0 for charge in range(1, 7)}
 
-            # Also calculate a general shift for reference (using charge 2 as default)
-            try:
-                self.general_shift = self._compute_ccs_shift(
-                    psm_df_target,
-                    psm_df_source,
-                    2,
-                )
-            except Exception:
-                # If charge 2 fails, try to get any available charge
-                available_charges = [
-                    c
-                    for c in self.charge_shifts.keys()
-                    if self.charge_shifts[c] is not None and self.charge_shifts[c] != 0.0
+            # Set general shift as the mean of calculated charge shifts or charge 2 if available
+            if 2 in self.charge_shifts and self.charge_shifts[2] != 0.0:
+                self.general_shift = self.charge_shifts[2]
+            else:
+                # Use mean of non-zero charge shifts
+                available_shifts = [
+                    shift
+                    for shift in self.charge_shifts.values()
+                    if shift is not None and shift != 0.0
                 ]
-                if available_charges:
-                    self.general_shift = self.charge_shifts[available_charges[0]]
+                if available_shifts:
+                    self.general_shift = float(np.mean(available_shifts))
                 else:
                     self.general_shift = 0.0
 
             # Fill in missing charge states with general shift
+            no_shift_calculated = []
             for charge in range(1, 7):
                 if (
                     charge not in self.charge_shifts
                     or self.charge_shifts[charge] is None
                     or self.charge_shifts[charge] == 0.0
                 ):
-                    LOGGER.debug(
-                        f"No shift factor calculated for charge state {charge}. "
-                        f"Using general shift: {self.general_shift:.3f}."
-                    )
-                    self.charge_shifts[charge] = float(self.general_shift)
+                    no_shift_calculated.append(charge)
+            LOGGER.debug(
+                f"No shift factor calculated for charge states: {no_shift_calculated}. "
+                f"Using general shift: {self.general_shift:.3f}."
+            )
+            self.charge_shifts[charge] = float(self.general_shift)
         else:
             # For global calibration, calculate a single shift
             try:
@@ -286,8 +284,8 @@ class LinearCCSCalibration(Calibration):
         # Extract peptide keys and charges
         def get_peptide_key(pf):
             if isinstance(pf, Peptidoform):
-                # For Peptidoform objects, use proforma property which excludes charge
-                return pf.proforma
+                # For Peptidoform objects, convert proforma to string and strip charge suffix
+                return str(pf.proforma).rsplit("/", 1)[0]
             else:
                 # For strings in format "PEPTIDE/charge", split off charge
                 return str(pf).rsplit("/", 1)[0]
@@ -426,10 +424,6 @@ class LinearCCSCalibration(Calibration):
         # Log information for each charge state
         charge_counts = merged.groupby("charge").size()
         for charge, count in charge_counts.items():
-            LOGGER.debug(
-                f"Calculated shift for charge {charge} based on {count} overlapping peptides: "
-                f"{shift_factors[charge]:.3f}"
-            )
             if count < 10:
                 LOGGER.warning(
                     f"Only {count} overlapping peptides found for charge state {charge}. "
