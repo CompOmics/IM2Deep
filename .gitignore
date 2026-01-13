@@ -112,3 +112,6 @@ IM2Deep.code-workspace
 # Testing
 test_data/
 test.ipynb
+
+# Profiles
+profiles/

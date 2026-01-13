@@ -90,7 +90,7 @@ def predict_and_calibrate(
     LOGGER.info("Predicting uncalibrated CCS values...")
     psm_list = validate_psm_list(psm_list)
     psm_list_cal = validate_psm_list(psm_list_cal, needs_target=True)
-    # TODO: the reference dataset is a csv, so we need to convert to PSMList somewhere
+
     predicted_ccs = predict(
         psm_list=psm_list,
         model=model,
@@ -102,22 +102,13 @@ def predict_and_calibrate(
     for idx, psm in enumerate(psm_list):
         psm.metadata["predicted_CCS_uncalibrated"] = predicted_ccs[idx]
 
-    peptidoforms = [psm.peptidoform for psm in psm_list]
-    peptidoforms_cal = [psm.peptidoform for psm in psm_list_cal]
-    observed_ccs_cal = np.array(
-        [psm.metadata["CCS"] for psm in psm_list_cal],
-        dtype=np.float32,
-    )
+    psm_df = psm_list.to_dataframe()
+    psm_df_cal = psm_list_cal.to_dataframe()
     if psm_list_reference is not None:
         psm_list_reference = validate_psm_list(psm_list_reference, needs_target=True)
-        peptidoforms_ref = [psm.peptidoform for psm in psm_list_reference]
-        observed_ccs_ref = np.array(
-            [psm.metadata["CCS"] for psm in psm_list_reference],
-            dtype=np.float32,
-        )
+        psm_df_reference = psm_list_reference.to_dataframe()
     else:
-        peptidoforms_ref = None
-        observed_ccs_ref = None
+        psm_df_reference = None
 
     # Perform calibration
     if calibration is None:
@@ -136,22 +127,18 @@ def predict_and_calibrate(
                 "These will be ignored during calibration fitting."
             )
         calibration.fit(
-            peptidoforms_cal,
-            observed_ccs_cal,
-            peptidoforms_source=peptidoforms_ref,
-            observed_ccs_source=observed_ccs_ref,
+            psm_df_cal,
+            psm_df_reference,
             multi=multi,
         )
     else:
         LOGGER.info("Calibration is already fitted, skipping fitting step.")
 
     # Apply calibration to predictions
-    predicted_ccs_calibrated = calibration.transform(peptidoforms, predicted_ccs)
+    predicted_ccs_calibrated = calibration.transform(psm_df)
 
-    return np.array(
-        predicted_ccs_calibrated,
-        dtype=np.float32,
-    )
+    # Return as-is (already numpy array, may be object array for multiconformer)
+    return predicted_ccs_calibrated
 
 
 def train(

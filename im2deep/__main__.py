@@ -42,12 +42,13 @@ Authors:
 from __future__ import annotations
 
 import logging
-
+import cProfile
 
 import click
 from rich.console import Console
 
 from im2deep import __version__, core
+from pathlib import Path
 from im2deep.utils import (
     setup_logging,
     parse_input,
@@ -71,8 +72,20 @@ LOGGER = logging.getLogger(__name__)
     default="info",
     help="Set logging verbosity level.",
 )
+@click.option(
+    "--profile",
+    is_flag=True,
+    default=False,
+    help="Enable profiling with cProfile. Results saved to 'im2deep_profile.prof'.",
+)
+@click.option(
+    "--profile-name",
+    type=click.Path(dir_okay=False),
+    default="im2deep_profile.prof",
+    help="Output file name for cProfile results when --profile is enabled.",
+)
 @click.version_option(version=__version__)
-def cli(ctx, logging_level):
+def cli(ctx, logging_level, profile, profile_name):
     """IM2Deep: Predict CCS values for peptides using deep learning.
 
     Run prediction with: im2deep INPUT_FILE [OPTIONS]
@@ -87,12 +100,15 @@ def cli(ctx, logging_level):
     # Store parameters in context for subcommands
     ctx.ensure_object(dict)
     ctx.obj["logging_level"] = logging_level
+    ctx.obj["profile"] = profile
+    ctx.obj["profile_name"] = profile_name
 
     console.print(build_credits())
 
 
 # Implement psm_utils reading for calibration and prediction PSMLists
 @cli.command()
+@click.pass_context
 @click.argument(
     "precursors", type=click.Path(exists=True, dir_okay=False), metavar="INPUT_FILE", required=True
 )
@@ -163,12 +179,39 @@ def cli(ctx, logging_level):
     default="info",
     help="Set logging verbosity level.",
 )
-def predict(*args, **kwargs):
+def predict(ctx, *args, **kwargs):
     """Predict CCS values for peptides (default command).
 
     If no calibration file is provided with -c, performs prediction only.
     With -c, performs calibration and prediction for improved accuracy.
     """
+    # Check if profiling is enabled from parent context
+    profile_enabled = ctx.obj.get("profile", False)
+
+    if profile_enabled:
+        # Run with profiling
+        profiler = cProfile.Profile()
+        profiler.enable()
+
+    try:
+        _run_predict(*args, **kwargs)
+    finally:
+        if profile_enabled:
+            profiler.disable()
+
+            # Get the IM2Deep root directory (two levels up from this file)
+            root_dir = Path(__file__).parent.parent
+            profiles_dir = root_dir / "profiles"
+            profiles_dir.mkdir(exist_ok=True)
+
+            profile_output = profiles_dir / ctx.obj.get("profile_name", "im2deep_profile.prof")
+            profiler.dump_stats(profile_output)
+            LOGGER.info(f"Profiling data saved to {profile_output}")
+            LOGGER.info(f"View with: snakeviz {profile_output}")
+
+
+def _run_predict(*args, **kwargs):
+    """Internal function that performs the actual prediction work."""
     # Setup logging first
     setup_logging(kwargs.get("logging_level", "info"))
 
