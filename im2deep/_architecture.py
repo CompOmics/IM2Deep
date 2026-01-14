@@ -5,7 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
 import logging
-import wandb
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 from im2deep.constants import (
     BASEMODELCONFIG,
@@ -30,7 +34,8 @@ class LogLowestMAE(L.Callback):
         if currentMAE < self.bestMAE:
             self.bestMAE = currentMAE
         if self.config["wandb"]["enabled"]:
-            wandb.log({"Best Val MAE": self.bestMAE})
+            if wandb is not None:
+                wandb.log({"Best Val MAE": self.bestMAE})
 
 
 class LRelu_with_saturation(nn.Module):
