@@ -70,3 +70,21 @@ DEFAULT_CONFIG = {
     "add_X_mol": False,
     "init": "normal",
 }
+
+BASEMODELCONFIG = {
+    "AtomComp_kernel_size": 4,
+    "DiatomComp_kernel_size": 4,
+    "One_hot_kernel_size": 4,
+    "AtomComp_out_channels_start": 356,
+    "DiatomComp_out_channels_start": 65,
+    "Global_units": 20,
+    "OneHot_out_channels": 1,
+    "Concat_units": 94,
+    "AtomComp_MaxPool_kernel_size": 2,
+    "DiatomComp_MaxPool_kernel_size": 2,
+    "OneHot_MaxPool_kernel_size": 10,
+    "LRelu_negative_slope": 0.013545684190756122,
+    "LRelu_saturation": 40,
+    "init": "normal",
+    "add_X_mol": False,
+}

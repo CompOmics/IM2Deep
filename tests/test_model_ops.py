@@ -222,14 +222,14 @@ class TestPredictLoop:
 class TestGetArchitecture:
     """Tests for _get_architecture function."""
 
-    @patch("im2deeptrainer.model.IM2Deep")
+    @patch("im2deep._architecture.IM2Deep")
     def test_get_architecture_single(self, mock_im2deep):
         """Test getting single-output architecture."""
         arch = _model_ops._get_architecture(multi=False)
         # Should import IM2Deep
         assert arch is mock_im2deep
 
-    @patch("im2deeptrainer.model.IM2DeepMultiTransfer")
+    @patch("im2deep._architecture.IM2DeepMultiTransfer")
     def test_get_architecture_multi(self, mock_multi):
         """Test getting multi-output architecture."""
         arch = _model_ops._get_architecture(multi=True)
@@ -259,7 +259,7 @@ class TestGetLossFunction:
         loss = _model_ops._get_loss_function(multi=False)
         assert isinstance(loss, torch.nn.modules.loss._Loss)
 
-    @patch("im2deeptrainer.utils.FlexibleLossSorted")
+    @patch("im2deep._architecture.FlexibleLossSorted")
     def test_get_loss_function_multi(self, mock_loss):
         """Test getting multi-output loss function."""
         mock_instance = MagicMock()

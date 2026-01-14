@@ -165,11 +165,11 @@ def _predict_loop(
 def _get_architecture(multi: bool) -> L.LightningModule:
     """Get the model architecture based on whether multi-output is needed."""
     if multi:
-        from im2deeptrainer.model import IM2DeepMultiTransfer
+        from im2deep._architecture import IM2DeepMultiTransfer
 
         return IM2DeepMultiTransfer
     else:
-        from im2deeptrainer.model import IM2Deep
+        from im2deep._architecture import IM2Deep
 
         return IM2Deep
 
@@ -189,7 +189,7 @@ def _get_model_config(multi: bool) -> dict:
 def _get_loss_function(multi: bool) -> torch.nn.modules.loss._Loss | torch.nn.Module:
     """Get the loss function based on whether multi-output is needed."""
     if multi:
-        from im2deeptrainer.utils import FlexibleLossSorted
+        from im2deep._architecture import FlexibleLossSorted
 
         return FlexibleLossSorted()
     else:
