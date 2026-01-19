@@ -36,7 +36,7 @@ License:
     Apache License 2.0
 """
 
-__version__ = "1.2.0"
+__version__ = "2.0.0-beta"
 
 # Import main functionality for easier access
 from importlib.metadata import version
