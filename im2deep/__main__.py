@@ -248,48 +248,80 @@ def _run_predict(*args, **kwargs):
     LOGGER.info("IM2Deep finished.")
 
 
-# TODO: implement train command
-# @cli.command()
-# @click.argument("training_data", type=click.Path(exists=True, dir_okay=False))
-# @click.option(
-#     "-o",
-#     "--output-model",
-#     type=click.Path(dir_okay=False),
-#     required=True,
-#     help="Path to save the trained model.",
-# )
-# @click.option(
-#     "--epochs",
-#     type=int,
-#     default=100,
-#     help="Number of training epochs.",
-# )
-# @click.option(
-#     "-l",
-#     "--logging-level",
-#     type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
-#     default="info",
-#     help="Set logging verbosity level.",
-# )
-# def train(training_data, output_model, epochs, logging_level):
-#     """Train a new IM2Deep model.
+@cli.command()
+@click.argument("config", type=click.Path(exists=True, dir_okay=False), required=True)
+@click.option(
+    "-l",
+    "--logging-level",
+    type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
+    default="info",
+    help="Set logging verbosity level.",
+)
+def train(config, logging_level):
+    """Train a new IM2Deep model.
 
-#     Example: im2deep train training_data.csv -o my_model.ckpt
-#     """
-#     setup_logging(logging_level)
-#     LOGGER.info("Starting IM2Deep training...")
+    CONFIG should be a JSON configuration file specifying training parameters.
+    
+    The config file should include:
+    - data_path: Path to training data CSV/pickle
+    - output_path: Directory for output model and checkpoints
+    - model_params: Model configuration including architecture parameters
+    - test_split, val_split: Data split ratios
+    - Additional training parameters
 
-#     # Parse training data
-#     psm_list_train = _parse_csv_input(training_data, "training")
+    Example: im2deep train config.json
+    """
+    import json
+    from im2deep.training_data import data_extraction
+    from im2deep.training import train_model
+    from im2deep.training_evaluate import evaluate_and_plot
+    from im2deep.training_exceptions import IM2DeepTrainerConfigError
+    
+    setup_logging(logging_level)
+    LOGGER.info("Starting IM2Deep model training...")
 
-#     # Call training function
-#     core.train(
-#         psm_list=psm_list_train,
-#         model_save_path=output_model,
-#         training_kwargs={"epochs": epochs},
-#     )
+    # Parse config file
+    try:
+        if Path(config).suffix.lower() != ".json":
+            raise IM2DeepTrainerConfigError("Config file must be a JSON file")
+        
+        with open(config, "r") as f:
+            config_dict = json.load(f)
+            LOGGER.debug(f"Loaded configuration: {config_dict}")
+    except Exception as e:
+        LOGGER.error(f"Failed to parse config file: {e}")
+        raise
 
-#     LOGGER.info(f"Training completed. Model saved to {output_model}")
+    # Setup Weights and Biases if enabled
+    wandb_config = config_dict["model_params"]["wandb"]
+    if wandb_config["enabled"]:
+        import wandb
+        wandb.init(
+            project=wandb_config["project_name"],
+            name=config_dict["model_params"]["model_name"],
+            save_code=False,
+            config=config_dict["model_params"],
+        )
+        model_config = wandb.config
+    else:
+        model_config = config_dict["model_params"]
+
+    # Extract and prepare data
+    LOGGER.info("Extracting and preparing training data...")
+    data, test_df = data_extraction(config_dict)
+
+    # Train model
+    LOGGER.info("Training model...")
+    trainer, model, test_loader = train_model(
+        data, model_config, output_path=config_dict["output_path"]
+    )
+
+    # Evaluate and plot results
+    LOGGER.info("Evaluating model...")
+    evaluate_and_plot(trainer, model, test_loader, test_df, config_dict)
+
+    LOGGER.info("Training completed successfully!")
+    LOGGER.info(f"Model saved to {config_dict['output_path']}")
 
 
 def main():

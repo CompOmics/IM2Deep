@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import cast
 
 import pandas as pd
 import numpy as np
 from psm_utils import PSMList, Peptidoform
 
 from im2deep._exceptions import CalibrationError
-from im2deep.utils import parse_input
 from im2deep.constants import DEFAULT_REFERENCE_DATASET_PATH, DEFAULT_MULTI_REFERENCE_DATASET_PATH
 
 LOGGER = logging.getLogger(__name__)

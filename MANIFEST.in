@@ -1,3 +1,5 @@
 include im2deep/models/*
 include im2deep/models/**/*
 include im2deep/reference_data/*
+include im2deep/training_package_data/*
+include im2deep/training_package_data/**/*

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Integrated training functionality from IM2DeepTrainer package**
+  - New `train` CLI command for training custom models
+  - Training modules: `training.py`, `training_data.py`, `training_evaluate.py`, `training_model.py`, `training_utils.py`
+  - Support for single-conformer and multi-conformer model training
+  - Transfer learning capabilities from pre-trained backbones
+  - Weights & Biases (wandb) integration for experiment tracking
+  - Training data extraction and preprocessing utilities
+  - Model evaluation and visualization tools
+- Training package data including amino acid molecular descriptors and transfer learning backbone
+- Comprehensive training documentation in README
+- Python API for programmatic model training
+- Dependencies: wandb, matplotlib, scipy, deeplcretrainer, pyteomics
 - This CHANGELOG file
 - Comprehensive documentation with API reference, development guide, and tutorial
 - Enhanced error handling with custom exceptions

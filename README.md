@@ -47,10 +47,75 @@ For a complete overview of all CLI arguments, run:
 im2deep --help
 ```
 
+### Training Custom Models
+
+IM2Deep now includes integrated training functionality for creating custom models on your own datasets:
+
+**Training a new model:**
+```bash
+im2deep train <path/to/config.json>
+```
+
+The training configuration file should be in JSON format and include:
+- `data_path`: Path to training data (CSV or pickle format)
+- `output_path`: Directory where the model and checkpoints will be saved
+- `model_params`: Model architecture and training parameters
+  - `model_name`: Name for the model
+  - `epochs`: Number of training epochs
+  - `batch_size`: Training batch size
+  - `learning_rate`: Learning rate for optimization
+  - `device`: GPU device index (e.g., 0)
+  - `monitor`: Metric to monitor for checkpointing (e.g., "val_loss")
+  - `mode`: "min" or "max" for checkpoint metric
+  - `use_best_model`: Whether to use the best checkpoint
+  - `multi-output`: Enable multi-conformer prediction training
+  - `transfer`: Use transfer learning from pre-trained backbone
+  - `wandb`: Weights & Biases logging configuration
+    - `enabled`: Enable W&B logging
+    - `project_name`: W&B project name
+- `test_split`: Fraction of data to use for testing (e.g., 0.1)
+- `val_split`: Fraction of training data to use for validation (e.g., 0.1)
+- `remove_charge_dupes`: Remove duplicate sequences with different charges
+- `save_dfs`: Save train/val/test dataframes
+- `save_data_tensors`: Save preprocessed data tensors
+
+**Example config.json:**
+```json
+{
+  "data_path": "training_data.csv",
+  "output_path": "./output",
+  "test_split": 0.1,
+  "val_split": 0.1,
+  "remove_charge_dupes": true,
+  "save_dfs": false,
+  "save_data_tensors": false,
+  "model_params": {
+    "model_name": "my_custom_model",
+    "epochs": 100,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "device": 0,
+    "monitor": "Validation MAE",
+    "mode": "min",
+    "use_best_model": true,
+    "multi-output": false,
+    "transfer": false,
+    "add_X_mol": false,
+    "wandb": {
+      "enabled": false,
+      "project_name": "im2deep-training"
+    }
+  }
+}
+```
+
+The training data should be in CSV format with columns: `seq`, `modifications`, `charge`, and `CCS`. For multi-conformer training, `CCS` should contain a list of two values.
+
 ### Python API
 
 IM2Deep can also be used programmatically:
 
+**Prediction:**
 ```python
 from im2deep import predict, predict_and_calibrate
 from psm_utils import PSMList
@@ -67,6 +132,40 @@ calibrated_predictions = predict_and_calibrate(
     psm_list=psm_list,
     psm_list_cal=psm_list_calibration
 )
+```
+
+**Training:**
+```python
+from im2deep.training_data import data_extraction
+from im2deep.training import train_model
+from im2deep.training_evaluate import evaluate_and_plot
+
+# Prepare configuration dictionary (same structure as JSON config)
+config = {
+    "data_path": "training_data.csv",
+    "output_path": "./output",
+    "test_split": 0.1,
+    "val_split": 0.1,
+    "model_params": {
+        "model_name": "my_model",
+        "epochs": 100,
+        "batch_size": 256,
+        # ... other parameters
+    }
+}
+
+# Extract and prepare data
+data, test_df = data_extraction(config)
+
+# Train the model
+trainer, model, test_loader = train_model(
+    data, 
+    config["model_params"], 
+    output_path=config["output_path"]
+)
+
+# Evaluate and visualize results
+evaluate_and_plot(trainer, model, test_loader, test_df, config)
 ```
 
 ## Input Files

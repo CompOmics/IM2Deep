@@ -11,20 +11,30 @@ Key Features:
     - Linear calibration using reference datasets
     - Support for modified peptides
     - Ion mobility conversion utilities
+    - Model training capabilities for custom datasets
     - Command-line interface for easy usage
 
 Example:
     Basic usage for CCS prediction:
 
-    >>> from im2deep.im2deep import predict_ccs
+    >>> from im2deep import predict, predict_and_calibrate
     >>> from psm_utils.psm_list import PSMList
-    >>> predictions = predict_ccs(psm_list, calibration_data)
+    >>> predictions = predict(psm_list)
+    
+    Training a new model:
+    
+    >>> from im2deep.training_data import data_extraction
+    >>> from im2deep.training import train_model
+    >>> # See CLI documentation for config structure
+    >>> data, test_df = data_extraction(config)
+    >>> trainer, model, test_loader = train_model(data, model_config, output_path)
 
 Dependencies:
     - deeplc: For deep learning model infrastructure
     - psm_utils: For peptide and PSM handling
     - pandas: For data manipulation
     - numpy: For numerical computations
+    - torch & lightning: For neural network training and inference
     - click: For command-line interface
 
 Authors:
@@ -42,7 +52,15 @@ __version__ = "2.0.0-beta"
 from importlib.metadata import version
 from im2deep.utils import ccs2im, im2ccs
 from im2deep.core import predict, predict_and_calibrate
-from im2deep.utils import ccs2im, im2ccs
+
+# Training functionality (optional imports - may require additional dependencies)
+try:
+    from im2deep.training_data import data_extraction
+    from im2deep.training import train_model
+    from im2deep.training_evaluate import evaluate_and_plot
+    _training_available = True
+except ImportError:
+    _training_available = False
 
 __version__: str = version("im2deep")
 __all__ = [
@@ -51,3 +69,7 @@ __all__ = [
     "ccs2im",
     "im2ccs",
 ]
+
+# Add training functions to __all__ if available
+if _training_available:
+    __all__.extend(["data_extraction", "train_model", "evaluate_and_plot"])

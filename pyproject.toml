@@ -18,7 +18,21 @@ classifiers = [
 ]
 dynamic = ["version"]
 requires-python = ">=3.10"
-dependencies = ["click", "deeplc", "psm_utils", "pandas", "numpy", "rich", "torch", "lightning"]
+dependencies = [
+    "click",
+    "deeplc",
+    "psm_utils",
+    "pandas",
+    "numpy",
+    "rich",
+    "torch",
+    "lightning==2.2.4",
+    "scipy",
+    "wandb",
+    "matplotlib",
+    "deeplcretrainer",
+    "pyteomics",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -51,6 +65,10 @@ im2deep = "im2deep.__main__:main"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["im2deep"]
+include-package-data = true
 
 [tool.setuptools.dynamic]
 version = { attr = "im2deep.__version__" }
@@ -95,7 +113,7 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["deeplc.*", "torch.*", "im2deeptrainer.*", "psm_utils.*"]
+module = ["deeplc.*", "torch.*", "lightning.*", "wandb.*", "psm_utils.*", "pyteomics.*", "deeplcretrainer.*", "scipy.*", "matplotlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
