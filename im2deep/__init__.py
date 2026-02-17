@@ -41,11 +41,13 @@ __version__ = "2.0.0-beta"
 # Import main functionality for easier access
 from importlib.metadata import version
 from im2deep.utils import ccs2im, im2ccs
+from im2deep.core import predict, predict_and_calibrate
+from im2deep.utils import ccs2im, im2ccs
 
 __version__: str = version("im2deep")
 __all__ = [
     "predict",
-    "calibrate_and_predict",
+    "predict_and_calibrate",
     "ccs2im",
     "im2ccs",
 ]
