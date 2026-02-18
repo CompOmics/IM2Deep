@@ -20,9 +20,9 @@ Example:
     >>> from im2deep import predict, predict_and_calibrate
     >>> from psm_utils.psm_list import PSMList
     >>> predictions = predict(psm_list)
-    
+
     Training a new model:
-    
+
     >>> from im2deep.training_data import data_extraction
     >>> from im2deep.training import train_model
     >>> # See CLI documentation for config structure
@@ -58,6 +58,7 @@ try:
     from im2deep.training_data import data_extraction
     from im2deep.training import train_model
     from im2deep.training_evaluate import evaluate_and_plot
+
     _training_available = True
 except ImportError:
     _training_available = False

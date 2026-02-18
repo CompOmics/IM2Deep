@@ -6,6 +6,15 @@ Collisional cross-section prediction for (modified) peptides.
 
 IM2Deep is a deep learning-based CCS predictor for (modified) peptides. It accurately predicts collisional cross-section (CCS) values for modified peptides, even if the modification wasn't observed during training. The tool supports both single-conformer and multi-conformer predictions for peptide ions.
 
+### Key Features
+
+- 🎯 **Accurate CCS Prediction** - State-of-the-art predictions for modified peptides
+- 🔬 **Multi-conformer Support** - Predict multiple conformational states
+- 🎓 **Custom Model Training** - Train models on your own datasets
+- 📊 **OOD Detection** - Extract latent embeddings for out-of-distribution detection
+- 🔧 **Flexible Calibration** - Per-charge or global calibration options
+- 💻 **Easy Integration** - Command-line interface and Python API
+
 ## Installation
 Install with pip:
 
@@ -166,6 +175,37 @@ trainer, model, test_loader = train_model(
 
 # Evaluate and visualize results
 evaluate_and_plot(trainer, model, test_loader, test_df, config)
+```
+
+### Out-of-Distribution (OOD) Detection
+
+IM2Deep supports extraction of latent embeddings for OOD detection:
+
+**Extract embeddings from trained model:**
+```python
+from im2deep.ood_detection import extract_embeddings, save_embeddings
+
+# Extract latent embeddings
+embeddings, ids = extract_embeddings(
+    model=model,
+    dataloader=your_dataloader,
+    device="cuda"
+)
+
+# Save for later use
+save_embeddings("embeddings.npz", embeddings, ids)
+```
+
+**Use for new peptides:**
+```python
+from im2deep.ood_detection import embed_peptides
+from im2deep.training_data import _get_matrices
+
+# Prepare features
+data_dict = _get_matrices(psm_list, split_name="test", inference=True)
+
+# Extract embeddings
+embeddings = embed_peptides(model, data_dict, device="cuda")
 ```
 
 ## Input Files

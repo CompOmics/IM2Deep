@@ -16,10 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Weights & Biases (wandb) integration for experiment tracking
   - Training data extraction and preprocessing utilities
   - Model evaluation and visualization tools
+- **Out-of-Distribution (OOD) detection module** (`ood_detection.py`)
+  - Latent embedding extraction from first dense layer after feature concatenation
+  - Support for both training and inference data
+  - Efficient batch processing for large datasets
+  - Comprehensive validation and sanity checks
+  - Save/load functionality for embeddings (compressed NPZ format)
+  - Deterministic extraction without model modification
+  - Works with all model variants (IM2Deep, IM2DeepMulti, transfer models)
+  - Example scripts and comprehensive documentation
 - Training package data including amino acid molecular descriptors and transfer learning backbone
 - Comprehensive training documentation in README
-- Python API for programmatic model training
+- OOD detection documentation (docs/OOD_DETECTION.md)
+- Python API for programmatic model training and embedding extraction
 - Dependencies: wandb, matplotlib, scipy, deeplcretrainer, pyteomics
+- Test suite for OOD detection functionality
+- Example script for embedding extraction (examples/extract_embeddings_example.py)
 - This CHANGELOG file
 - Comprehensive documentation with API reference, development guide, and tutorial
 - Enhanced error handling with custom exceptions
