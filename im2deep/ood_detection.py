@@ -38,6 +38,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from psm_utils import Peptidoform
+
 logger = logging.getLogger(__name__)
 
 
@@ -520,6 +522,328 @@ def _extract_charge_from_id(peptidoform_id: str) -> int:
     return int(peptidoform_id.split("/")[1])
 
 
+def _extract_mz_from_peptidoform(peptidoform_id: str) -> float:
+    """
+    Extract m/z value from peptidoform ID.
+
+    Args:
+        peptidoform_id: Peptidoform string in format "sequence/charge"
+
+    Returns:
+        m/z value (mass-to-charge ratio)
+    """
+    peptidoform = Peptidoform(peptidoform_id)
+    # Calculate m/z: (mass + charge * proton_mass) / charge
+    # Using psm_utils mass calculation
+    return peptidoform.theoretical_mz
+
+
+def _compute_mz_conditional_distances(
+    test_embeddings: np.ndarray,
+    ref_embeddings: np.ndarray,
+    test_mz: np.ndarray,
+    ref_mz: np.ndarray,
+    distance_fn: callable,
+    mz_tolerance: float,
+    min_ref_samples: int,
+    fn_kwargs: dict,
+) -> np.ndarray:
+    """
+    Compute m/z-conditional distances using tolerance-based filtering.
+
+    For each test sample, this function:
+    1. Filters reference samples within m/z tolerance
+    2. Falls back to global distribution if too few references
+    3. Computes distance using the selected reference embeddings
+
+    Args:
+        test_embeddings: Test embeddings (N_test, latent_dim)
+        ref_embeddings: Reference embeddings (N_ref, latent_dim)
+        test_mz: Test peptide m/z values (N_test,)
+        ref_mz: Reference peptide m/z values (N_ref,)
+        distance_fn: Distance function to use
+        mz_tolerance: m/z tolerance in Th (Daltons/charge)
+        min_ref_samples: Minimum reference samples required
+        fn_kwargs: Additional kwargs for distance function
+
+    Returns:
+        distances: Array of distances (N_test,)
+    """
+    logger.info(
+        f"Computing m/z-conditional distances with tolerance = {mz_tolerance:.2f} Th "
+        f"(min_ref_samples = {min_ref_samples})"
+    )
+
+    # Step 1: Determine reference subset for each test sample
+    ref_masks = {}  # Map from frozenset of ref indices to list of test indices
+    fallback_indices = []  # Test samples that need global fallback
+
+    for i in range(len(test_embeddings)):
+        mz = test_mz[i]
+
+        # Filter references within tolerance
+        ref_mask = np.abs(ref_mz - mz) <= mz_tolerance
+        n_refs = ref_mask.sum()
+
+        # Fallback to global if insufficient references
+        if n_refs < min_ref_samples:
+            fallback_indices.append(i)
+        else:
+            # Group by reference subset
+            ref_indices = frozenset(np.where(ref_mask)[0])
+            if ref_indices not in ref_masks:
+                ref_masks[ref_indices] = []
+            ref_masks[ref_indices].append(i)
+
+    # Step 2: Compute distances batch-wise for each unique reference subset
+    distances = np.zeros(len(test_embeddings))
+    n_groups = len(ref_masks) + (1 if fallback_indices else 0)
+
+    logger.info(f"Grouped {len(test_embeddings)} samples into {n_groups} unique reference subsets")
+
+    # Process each group
+    for group_idx, (ref_indices, test_indices) in enumerate(ref_masks.items()):
+        ref_subset = ref_embeddings[list(ref_indices)]
+        test_subset = test_embeddings[test_indices]
+
+        # Compute distances for all test samples in this group at once
+        group_distances = distance_fn(test_subset, ref_subset, **fn_kwargs)
+        distances[test_indices] = group_distances
+
+        if (group_idx + 1) % 100 == 0:
+            logger.debug(
+                f"Processed {group_idx + 1}/{len(ref_masks)} groups "
+                f"(current group: {len(test_indices)} samples, {len(ref_subset)} refs)"
+            )
+
+    # Process fallback samples (use global distribution)
+    if fallback_indices:
+        logger.info(
+            f"Computing distances for {len(fallback_indices)} fallback samples using global distribution"
+        )
+        test_subset = test_embeddings[fallback_indices]
+        fallback_distances = distance_fn(test_subset, ref_embeddings, **fn_kwargs)
+        distances[fallback_indices] = fallback_distances
+
+    # Log summary statistics
+    ref_sizes = [len(ref_indices) for ref_indices in ref_masks.keys()]
+    if ref_sizes:
+        mean_ref_size = np.mean(ref_sizes)
+        min_ref_size = min(ref_sizes)
+        max_ref_size = max(ref_sizes)
+    else:
+        mean_ref_size = min_ref_size = max_ref_size = 0
+
+    logger.info(
+        f"m/z-conditional distances: mean={distances.mean():.4f}, "
+        f"std={distances.std():.4f}, min={distances.min():.4f}, max={distances.max():.4f}"
+    )
+    logger.info(
+        f"Fallback to global distribution: {len(fallback_indices)}/{len(test_embeddings)} samples "
+        f"({100*len(fallback_indices)/len(test_embeddings):.1f}%)"
+    )
+    logger.info(
+        f"Mean reference set size: {mean_ref_size:.1f} (min={min_ref_size}, max={max_ref_size})"
+    )
+
+    return distances
+
+
+def _compute_mz_and_charge_conditional_distances(
+    test_embeddings: np.ndarray,
+    ref_embeddings: np.ndarray,
+    test_mz: np.ndarray,
+    ref_mz: np.ndarray,
+    test_charges: np.ndarray,
+    ref_charges: np.ndarray,
+    distance_fn: callable,
+    mz_tolerance: float,
+    min_ref_samples: int,
+    fn_kwargs: dict,
+) -> np.ndarray:
+    """
+    Compute mass-adjusted conditional Mahalanobis distance with charge-stratified residualization.
+
+    This uses continuous spline-based modeling instead of bins:
+    1. Per-charge models: Fit smooth m/z-dependent mean trajectory using cubic splines
+    2. Residualization: Remove mass-dependent trends
+    3. Shrinkage covariance: Estimate precision on residuals (OAS)
+    4. Mahalanobis distance: Compute in residualized space
+
+    Args:
+        test_embeddings: Test embeddings (N_test, latent_dim)
+        ref_embeddings: Reference embeddings (N_ref, latent_dim)
+        test_mz: Test peptide m/z values (N_test,)
+        ref_mz: Reference peptide m/z values (N_ref,)
+        test_charges: Test peptide charge states (N_test,)
+        ref_charges: Reference peptide charge states (N_ref,)
+        distance_fn: Distance function (only mahalanobis supported for continuous conditioning)
+        mz_tolerance: Interpreted as n_knots for spline fitting (default 10 if <= 0)
+        min_ref_samples: Minimum samples per charge for fitting
+        fn_kwargs: Additional kwargs (unused for this implementation)
+
+    Returns:
+        distances: Array of squared Mahalanobis distances (N_test,)
+    """
+    from sklearn.preprocessing import SplineTransformer
+    from sklearn.linear_model import Ridge
+    from sklearn.multioutput import MultiOutputRegressor
+    from sklearn.covariance import OAS
+
+    # Interpret mz_tolerance as n_knots for splines (default to 10)
+    n_knots = max(int(mz_tolerance) if mz_tolerance > 0 else 10, 5)
+    ridge_alpha = 0.1
+    use_log_mz = True
+    mz_epsilon = 1e-6
+
+    logger.info(
+        f"Computing continuous m/z + charge-conditional Mahalanobis distances "
+        f"using spline residualization (n_knots={n_knots})"
+    )
+
+    # Transform m/z: log(m/z)
+    if use_log_mz:
+        ref_mz_transformed = np.log(np.maximum(ref_mz, mz_epsilon)).reshape(-1, 1)
+        test_mz_transformed = np.log(np.maximum(test_mz, mz_epsilon)).reshape(-1, 1)
+    else:
+        ref_mz_transformed = ref_mz.reshape(-1, 1)
+        test_mz_transformed = test_mz.reshape(-1, 1)
+
+    # Get unique charges
+    unique_charges = np.unique(ref_charges)
+    latent_dim = ref_embeddings.shape[1]
+
+    logger.info(
+        f"Training data: {len(ref_embeddings)} samples, {latent_dim} latent dims, "
+        f"charges: {list(unique_charges)}"
+    )
+
+    # Fit per-charge models
+    charge_models = {}
+    global_fallback = None
+
+    for charge in unique_charges:
+        charge_mask = ref_charges == charge
+        n_charge = charge_mask.sum()
+
+        if n_charge < min_ref_samples:
+            logger.warning(
+                f"Charge {charge}: only {n_charge} samples (< {min_ref_samples}). "
+                f"Skipping charge-specific model."
+            )
+            continue
+
+        logger.debug(f"Fitting model for charge {charge} ({n_charge} samples)...")
+
+        # Extract charge-specific data
+        ref_emb_charge = ref_embeddings[charge_mask]
+        ref_mz_charge = ref_mz_transformed[charge_mask]
+
+        # Fit spline + ridge regression for mean function
+        spline_features = SplineTransformer(
+            n_knots=min(n_knots, max(5, n_charge // 10)),  # Adaptive knots
+            degree=3,
+            include_bias=False,
+        )
+
+        regressor = MultiOutputRegressor(Ridge(alpha=ridge_alpha, fit_intercept=True))
+
+        # Fit: X_spline -> Z
+        X_spline = spline_features.fit_transform(ref_mz_charge)
+        regressor.fit(X_spline, ref_emb_charge)
+
+        # Compute residuals
+        z_pred = regressor.predict(X_spline)
+        residuals = ref_emb_charge - z_pred
+
+        # Fit shrinkage covariance on residuals
+        cov_estimator = OAS()
+        cov_estimator.fit(residuals)
+
+        # Store model
+        charge_models[charge] = {
+            "spline_features": spline_features,
+            "regressor": regressor,
+            "cov_estimator": cov_estimator,
+            "n_samples": n_charge,
+        }
+
+    # Fit global fallback model (all charges combined)
+    logger.debug("Fitting global fallback model...")
+    spline_global = SplineTransformer(n_knots=n_knots, degree=3, include_bias=False)
+    regressor_global = MultiOutputRegressor(Ridge(alpha=ridge_alpha, fit_intercept=True))
+
+    X_spline_global = spline_global.fit_transform(ref_mz_transformed)
+    regressor_global.fit(X_spline_global, ref_embeddings)
+
+    z_pred_global = regressor_global.predict(X_spline_global)
+    residuals_global = ref_embeddings - z_pred_global
+
+    cov_global = OAS()
+    cov_global.fit(residuals_global)
+
+    global_fallback = {
+        "spline_features": spline_global,
+        "regressor": regressor_global,
+        "cov_estimator": cov_global,
+        "n_samples": len(ref_embeddings),
+    }
+
+    logger.info(
+        f"✓ Fitted models for {len(charge_models)} charge states: {list(charge_models.keys())}"
+    )
+
+    # Compute distances for test samples
+    distances = np.full(len(test_embeddings), np.nan)
+    unique_test_charges = np.unique(test_charges)
+
+    for charge in unique_test_charges:
+        test_mask = test_charges == charge
+        n_test_charge = test_mask.sum()
+
+        if n_test_charge == 0:
+            continue
+
+        # Use charge-specific model if available, else fallback
+        if charge in charge_models:
+            model = charge_models[charge]
+        else:
+            logger.warning(
+                f"Charge {charge} not in training data ({n_test_charge} test samples). "
+                f"Using global fallback."
+            )
+            model = global_fallback
+
+        # Extract test data for this charge
+        test_emb_charge = test_embeddings[test_mask]
+        test_mz_charge = test_mz_transformed[test_mask]
+
+        # Predict mean and compute residuals
+        X_spline_test = model["spline_features"].transform(test_mz_charge)
+        z_pred_test = model["regressor"].predict(X_spline_test)
+        residuals_test = test_emb_charge - z_pred_test
+
+        # Compute squared Mahalanobis distance in residualized space
+        # D^2 = (residuals @ precision @ residuals^T)
+        precision = model["cov_estimator"].precision_
+        distances_charge = np.sum(residuals_test @ precision * residuals_test, axis=1)
+
+        # Assign to output
+        distances[test_mask] = distances_charge
+
+    # Check for NaN values
+    n_nan = np.isnan(distances).sum()
+    if n_nan > 0:
+        logger.warning(f"{n_nan} test samples have NaN distances!")
+
+    logger.info(
+        f"✓ Continuous m/z + charge-conditional distances: mean={np.nanmean(distances):.4f}, "
+        f"std={np.nanstd(distances):.4f}, median={np.nanmedian(distances):.4f}"
+    )
+
+    return np.sqrt(distances)  # Return sqrt for consistency with standard Mahalanobis
+
+
 def _compute_mahalanobis_distances(
     test_embeddings: np.ndarray,
     reference_embeddings: np.ndarray,
@@ -534,8 +858,6 @@ def _compute_mahalanobis_distances(
     Returns:
         distances: Array of Mahalanobis distances (N_test,)
     """
-    from scipy.spatial import distance
-
     # Compute covariance matrix and inverse
     cov = np.cov(reference_embeddings, rowvar=False)
     # Add small regularization for numerical stability
@@ -543,10 +865,14 @@ def _compute_mahalanobis_distances(
     inv_cov = np.linalg.inv(cov)
     mean_ref = np.mean(reference_embeddings, axis=0)
 
-    # Compute Mahalanobis distance for each test embedding
-    distances = np.array(
-        [distance.mahalanobis(test_emb, mean_ref, inv_cov) for test_emb in test_embeddings]
-    )
+    # Compute Mahalanobis distance for all test embeddings at once (vectorized)
+    # diff shape: (N_test, latent_dim)
+    diff = test_embeddings - mean_ref
+
+    # Mahalanobis distance: sqrt((x - mean)^T * inv_cov * (x - mean))
+    # Vectorized computation: for each row i, compute diff[i] @ inv_cov @ diff[i]
+    # Result shape: (N_test,)
+    distances = np.sqrt(np.sum(diff @ inv_cov * diff, axis=1))
 
     return distances
 
@@ -558,6 +884,8 @@ def _compute_euclidean_distances(
     """
     Compute Euclidean distances from test embeddings to reference mean.
 
+    OPTIMIZED VERSION: Uses vectorized computation for all test samples at once.
+
     Args:
         test_embeddings: Test embeddings (N_test, latent_dim)
         reference_embeddings: Reference embeddings (N_ref, latent_dim)
@@ -565,10 +893,10 @@ def _compute_euclidean_distances(
     Returns:
         distances: Array of Euclidean distances (N_test,)
     """
-    from scipy.spatial import distance
-
     mean_ref = np.mean(reference_embeddings, axis=0)
-    distances = np.array([distance.euclidean(test_emb, mean_ref) for test_emb in test_embeddings])
+
+    # Vectorized Euclidean distance: ||test - mean||_2 for all test samples
+    distances = np.linalg.norm(test_embeddings - mean_ref, axis=1)
 
     return distances
 
@@ -604,6 +932,10 @@ def compute_distance(
     reference_embeddings: Union[np.ndarray, Dict],
     method: str = "mahalanobis",
     charge_conditional: bool = False,
+    mz_tolerance: Optional[float] = None,
+    test_mz: Optional[np.ndarray] = None,
+    ref_mz: Optional[np.ndarray] = None,
+    min_ref_samples: int = 10,
     n_neighbors: int = 1,
 ) -> np.ndarray:
     """
@@ -617,6 +949,12 @@ def compute_distance(
             - Dict: Loaded NPZ file with keys 'embeddings' and 'ids'
         method: Distance method to use ('mahalanobis', 'euclidean', or 'knn')
         charge_conditional: If True, compute distances separately for each charge state
+        mz_tolerance: If provided, use m/z-based conditioning (in Th). Can be combined with charge_conditional.
+        test_mz: m/z values for test peptides (N_test,). Required if mz_tolerance is set.
+            If not provided, will be extracted from test_ids.
+        ref_mz: m/z values for reference peptides (N_ref,). Required if mz_tolerance is set.
+            If not provided, will be extracted from ref_ids.
+        min_ref_samples: Minimum reference samples for conditioning. Falls back appropriately if fewer.
         n_neighbors: Number of neighbors for k-NN method (only used when method='knn')
 
     Returns:
@@ -629,6 +967,16 @@ def compute_distance(
         >>> distances = compute_distance(
         ...     test_embeddings, test_ids, ref_data,
         ...     method="mahalanobis", charge_conditional=True
+        ... )
+        >>> # Compute m/z-conditional distances
+        >>> distances_mz = compute_distance(
+        ...     test_embeddings, test_ids, ref_data,
+        ...     method="mahalanobis", mz_tolerance=25.0
+        ... )
+        >>> # Combine m/z and charge conditioning
+        >>> distances_combined = compute_distance(
+        ...     test_embeddings, test_ids, ref_data,
+        ...     method="mahalanobis", mz_tolerance=25.0, charge_conditional=True
         ... )
         >>> # Compute k-NN distances with k=5
         >>> distances_knn = compute_distance(
@@ -667,8 +1015,73 @@ def compute_distance(
     if method == "knn":
         fn_kwargs["n_neighbors"] = n_neighbors
 
-    # Charge-conditional computation
-    if charge_conditional:
+    # Combined m/z + charge-conditional
+    if mz_tolerance is not None and charge_conditional:
+        if ref_ids is None:
+            raise ValueError(
+                "Combined m/z + charge-conditional distance requires reference embeddings with IDs. "
+                "Please provide reference_embeddings as a dict with 'embeddings' and 'ids' keys."
+            )
+
+        # Extract m/z values if not provided
+        if test_mz is None:
+            logger.info("Extracting m/z values from test_ids...")
+            test_mz = np.array([_extract_mz_from_peptidoform(id_) for id_ in test_ids])
+
+        if ref_mz is None:
+            logger.info("Extracting m/z values from ref_ids...")
+            ref_mz = np.array([_extract_mz_from_peptidoform(id_) for id_ in ref_ids])
+
+        # Extract charge states
+        logger.info("Extracting charge states from IDs...")
+        test_charges = np.array([_extract_charge_from_id(id_) for id_ in test_ids])
+        ref_charges = np.array([_extract_charge_from_id(id_) for id_ in ref_ids])
+
+        # Use combined m/z + charge-conditional distance computation
+        distances = _compute_mz_and_charge_conditional_distances(
+            test_embeddings=test_embeddings,
+            ref_embeddings=ref_embeddings,
+            test_mz=test_mz,
+            ref_mz=ref_mz,
+            test_charges=test_charges,
+            ref_charges=ref_charges,
+            distance_fn=distance_fn,
+            mz_tolerance=mz_tolerance,
+            min_ref_samples=min_ref_samples,
+            fn_kwargs=fn_kwargs,
+        )
+
+    # m/z-conditional only
+    elif mz_tolerance is not None:
+        if ref_ids is None:
+            raise ValueError(
+                "m/z-conditional distance requires reference embeddings with IDs. "
+                "Please provide reference_embeddings as a dict with 'embeddings' and 'ids' keys."
+            )
+
+        # Extract m/z values if not provided
+        if test_mz is None:
+            logger.info("Extracting m/z values from test_ids...")
+            test_mz = np.array([_extract_mz_from_peptidoform(id_) for id_ in test_ids])
+
+        if ref_mz is None:
+            logger.info("Extracting m/z values from ref_ids...")
+            ref_mz = np.array([_extract_mz_from_peptidoform(id_) for id_ in ref_ids])
+
+        # Use m/z-conditional distance computation
+        distances = _compute_mz_conditional_distances(
+            test_embeddings=test_embeddings,
+            ref_embeddings=ref_embeddings,
+            test_mz=test_mz,
+            ref_mz=ref_mz,
+            distance_fn=distance_fn,
+            mz_tolerance=mz_tolerance,
+            min_ref_samples=min_ref_samples,
+            fn_kwargs=fn_kwargs,
+        )
+
+    # Charge-conditional
+    elif charge_conditional:
         if ref_ids is None:
             raise ValueError(
                 "Charge-conditional distance requires reference embeddings with IDs. "
@@ -719,7 +1132,7 @@ def compute_distance(
             )
 
     else:
-        # Global distance computation (no charge conditioning)
+        # Global distance computation (no conditioning)
         distances = distance_fn(test_embeddings, ref_embeddings, **fn_kwargs)
 
     return distances
@@ -841,6 +1254,10 @@ def compute_ood_scores(
     test_ids: Optional[List] = None,
     metric: str = "mahalanobis",
     charge_conditional: bool = False,
+    mz_tolerance: Optional[float] = None,
+    test_mz: Optional[np.ndarray] = None,
+    train_mz: Optional[np.ndarray] = None,
+    min_ref_samples: int = 10,
     use_pca: bool = False,
     pca_variance: float = 0.99,
     covariance_mode: str = "full",
@@ -856,9 +1273,13 @@ def compute_ood_scores(
         train_embeddings: Training embeddings (N_train, latent_dim) or list
         test_embeddings: Test embeddings (N_test, latent_dim) or list
         train_ids: Training peptidoform IDs in format "sequence/charge" (optional)
-        test_ids: Test peptidoform IDs in format "sequence/charge" (required if charge_conditional=True)
+        test_ids: Test peptidoform IDs in format "sequence/charge" (required if charge_conditional or mz_tolerance)
         metric: Distance metric ('mahalanobis', 'euclidean', or 'knn')
         charge_conditional: If True, compute distances separately per charge state
+        mz_tolerance: If provided, use m/z-based conditioning (in Th). Can be combined with charge_conditional.
+        test_mz: m/z values for test peptides (N_test,). If not provided, extracted from test_ids.
+        train_mz: m/z values for training peptides (N_train,). If not provided, extracted from train_ids.
+        min_ref_samples: Minimum reference samples for conditioning (default 10)
         use_pca: If True, apply PCA dimensionality reduction
         pca_variance: Variance to retain in PCA (default 0.99)
         covariance_mode: Covariance estimation for Mahalanobis distance
@@ -897,6 +1318,22 @@ def compute_ood_scores(
         ...     metric="knn", n_neighbors=5,
         ...     charge_conditional=True
         ... )
+        >>>
+        >>> # m/z-conditional Mahalanobis
+        >>> scores = compute_ood_scores(
+        ...     train_embeddings, test_embeddings,
+        ...     train_ids=train_ids, test_ids=test_ids,
+        ...     metric="mahalanobis",
+        ...     mz_tolerance=25.0, min_ref_samples=10
+        ... )
+        >>>
+        >>> # Combined m/z + charge conditioning
+        >>> scores = compute_ood_scores(
+        ...     train_embeddings, test_embeddings,
+        ...     train_ids=train_ids, test_ids=test_ids,
+        ...     metric="mahalanobis",
+        ...     mz_tolerance=25.0, charge_conditional=True
+        ... )
     """
     # Ensure inputs are numpy arrays
     if isinstance(train_embeddings, list):
@@ -921,10 +1358,12 @@ def compute_ood_scores(
             "pca_object": pca,
         }
 
-    # For charge-conditional computation, need to handle separately
-    if charge_conditional:
+    # For charge-conditional or m/z-conditional computation, need to handle separately
+    if charge_conditional or mz_tolerance is not None:
         if train_ids is None or test_ids is None:
-            raise ValueError("Charge-conditional OOD scoring requires both train_ids and test_ids")
+            raise ValueError(
+                "Charge-conditional or m/z-conditional OOD scoring requires both train_ids and test_ids"
+            )
 
         # Create reference dict
         reference = {
@@ -934,6 +1373,13 @@ def compute_ood_scores(
 
         # For Mahalanobis with advanced covariance, we need custom handling
         if metric == "mahalanobis" and covariance_mode != "full":
+            # m/z conditioning not compatible with advanced covariance modes
+            if mz_tolerance is not None:
+                raise ValueError(
+                    "m/z-conditional distances are not compatible with advanced covariance modes "
+                    "(shrinkage, diagonal). Please use covariance_mode='full' with mz_tolerance."
+                )
+
             # Extract charge states
             test_charges = np.array([_extract_charge_from_id(id_) for id_ in test_ids])
             ref_charges = np.array([_extract_charge_from_id(id_) for id_ in reference["ids"]])
@@ -972,11 +1418,15 @@ def compute_ood_scores(
                 test_ids=test_ids,
                 reference_embeddings=reference,
                 method=metric,
-                charge_conditional=True,
+                charge_conditional=charge_conditional,
+                mz_tolerance=mz_tolerance,
+                test_mz=test_mz,
+                ref_mz=train_mz,
+                min_ref_samples=min_ref_samples,
                 n_neighbors=n_neighbors,
             )
     else:
-        # Global (non-charge-conditional) computation
+        # Global (no conditioning) computation
         if metric == "mahalanobis":
             scores = _compute_mahalanobis_distances_advanced(
                 test_embeddings, train_embeddings, covariance_mode

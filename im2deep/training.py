@@ -7,7 +7,13 @@ from typing import Dict, Tuple
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, ModelSummary, RichProgressBar
 from lightning.pytorch.loggers import WandbLogger
-from .training_model import IM2Deep, IM2DeepMulti, LogLowestMAE, IM2DeepMultiTransfer, IM2DeepTransfer
+from .training_model import (
+    IM2Deep,
+    IM2DeepMulti,
+    LogLowestMAE,
+    IM2DeepMultiTransfer,
+    IM2DeepTransfer,
+)
 from .training_utils import FlexibleLossSorted
 
 torch.set_float32_matmul_precision("high")
@@ -70,7 +76,14 @@ def _setup_callbacks(model_config: Dict, output_path: str) -> list:
     Returns:
         list: List of callbacks
     """
-    callbacks = [ModelSummary(), RichProgressBar(), LogLowestMAE(model_config)]
+    # Use simple progress bar if rich progress is disabled in config
+    use_rich_progress = model_config.get("use_rich_progress", True)
+
+    callbacks = [ModelSummary(), LogLowestMAE(model_config)]
+
+    if use_rich_progress:
+        callbacks.append(RichProgressBar())
+
     if model_config["use_best_model"]:
         mcp = ModelCheckpoint(
             output_path + "/checkpoint",
@@ -129,11 +142,22 @@ def train_model(
     if wandb_config["enabled"]:
         wandb_logger = _setup_wandb_logger(wandb_config, model)
 
+    # Determine accelerator and devices from config
+    accelerator = model_config.get("accelerator", "gpu")
+    if accelerator == "cpu":
+        devices = 1  # For CPU, use 1 device
+    else:
+        devices = (
+            [model_config["device"]]
+            if isinstance(model_config["device"], int)
+            else model_config["device"]
+        )
+
     trainer = L.Trainer(
-        accelerator="gpu",
-        devices=[model_config["device"]],
+        accelerator=accelerator,
+        devices=devices,
         max_epochs=model_config["epochs"],
-        enable_progress_bar=True,
+        enable_progress_bar=model_config.get("use_rich_progress", True),
         callbacks=callbacks,
         logger=wandb_logger if wandb_config["enabled"] else None,
         default_root_dir=output_path,

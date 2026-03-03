@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from psm_utils.psm_list import PSMList
 import torch
-from deeplc.data import DeepLCDataset
+
 
 from im2deep.utils import validate_psm_list
 from im2deep import _model_ops
@@ -43,6 +43,8 @@ def predict(
         CCS predictions.
 
     """
+    from deeplc.data import DeepLCDataset
+
     LOGGER.info("Predicting CCS values using IM2Deep.")
     psm_list = validate_psm_list(psm_list)
     return _model_ops.predict(
@@ -86,6 +88,8 @@ def predict_and_calibrate(
         Calibrated CCS predictions.
 
     """
+    from deeplc.data import DeepLCDataset
+
     # Predict initial CCS values
     LOGGER.info("Predicting uncalibrated CCS values...")
     psm_list = validate_psm_list(psm_list)
@@ -170,6 +174,7 @@ def train(
     None
 
     """
+    # Implement once Deeplcretrainer is updated to new DeepLC API
     raise NotImplementedError(
         "Training functionality is not yet implemented for IM2Deep. Use the IM2DeepTrainer package instead."
     )
