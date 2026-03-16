@@ -41,21 +41,21 @@ Authors:
 
 from __future__ import annotations
 
-import logging
 import cProfile
+import logging
+from pathlib import Path
 
 import click
 from rich.console import Console
 
 from im2deep import __version__, core
-from pathlib import Path
 from im2deep.utils import (
-    setup_logging,
-    parse_input,
-    build_credits,
-    write_output,
-    infer_output_name,
     DefaultCommandGroup,
+    build_credits,
+    infer_output_name,
+    parse_input,
+    setup_logging,
+    write_output,
 )
 
 console = Console()

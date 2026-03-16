@@ -1,12 +1,12 @@
 """Tests for calibration module."""
 
-import pytest
 import numpy as np
 import pandas as pd
-from psm_utils import Peptidoform, PSM, PSMList
+import pytest
+from psm_utils import Peptidoform
 
-from im2deep.calibration import LinearCCSCalibration, get_default_reference
 from im2deep._exceptions import CalibrationError
+from im2deep.calibration import LinearCCSCalibration, get_default_reference
 
 
 class TestLinearCCSCalibration:

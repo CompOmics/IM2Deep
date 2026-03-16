@@ -1,9 +1,10 @@
 """Tests for exceptions module."""
 
 import pytest
+
 from im2deep._exceptions import (
-    IM2DeepError,
     CalibrationError,
+    IM2DeepError,
 )
 
 
@@ -19,7 +20,7 @@ class TestExceptions:
         """Test CalibrationError inherits from IM2DeepError."""
         with pytest.raises(IM2DeepError):
             raise CalibrationError("calibration failed")
-        
+
         with pytest.raises(CalibrationError, match="calibration failed"):
             raise CalibrationError("calibration failed")
 
@@ -31,19 +32,19 @@ class TestExceptions:
     def test_exception_with_cause(self):
         """Test exceptions can wrap other exceptions."""
         original_error = ValueError("original error")
-        
+
         with pytest.raises(CalibrationError) as exc_info:
             try:
                 raise original_error
             except ValueError as e:
                 raise CalibrationError("wrapped error") from e
-        
+
         assert exc_info.value.__cause__ is original_error
 
     def test_exception_messages(self):
         """Test that exception messages are preserved."""
         message = "detailed error message with context"
-        
+
         try:
             raise IM2DeepError(message)
         except IM2DeepError as e:

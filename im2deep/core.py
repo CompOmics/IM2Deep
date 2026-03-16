@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import logging
 from os import PathLike
-from pathlib import Path
 
 import numpy as np
-from psm_utils.psm_list import PSMList
 import torch
 from deeplc.data import DeepLCDataset
+from psm_utils.psm_list import PSMList
 
-from im2deep.utils import validate_psm_list
 from im2deep import _model_ops
-from im2deep.calibration import LinearCCSCalibration, Calibration
+from im2deep.calibration import Calibration, LinearCCSCalibration
 from im2deep.constants import DEFAULT_MODEL, DEFAULT_MULTI_MODEL
+from im2deep.utils import validate_psm_list
 
 LOGGER = logging.getLogger(__name__)
 

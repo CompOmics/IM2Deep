@@ -1,10 +1,11 @@
-import sys
+import logging
 from pathlib import Path
+
+import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import lightning as L
-import logging
+from scipy.stats import pearsonr
 
 try:
     import wandb
@@ -19,10 +20,12 @@ PACKAGE_DATA_PATH = Path(__file__).parent / "package_data"
 
 logger = logging.getLogger(__name__)
 
+MAE = nn.L1Loss()
+
 
 class LogLowestMAE(L.Callback):
     def __init__(self, config):
-        super(LogLowestMAE, self).__init__()
+        super().__init__()
         self.bestMAE = float("inf")
         self.config = config
 
@@ -40,7 +43,7 @@ class LogLowestMAE(L.Callback):
 
 class LRelu_with_saturation(nn.Module):
     def __init__(self, negative_slope, saturation):
-        super(LRelu_with_saturation, self).__init__()
+        super().__init__()
         self.negative_slope = negative_slope
         self.saturation = saturation
         self.leaky_relu = nn.LeakyReLU(self.negative_slope)
@@ -61,7 +64,7 @@ class Conv1dActivation(nn.Module):
         negative_slope,
         saturation,
     ):
-        super(Conv1dActivation, self).__init__()
+        super().__init__()
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, padding=padding)
         self.initializer = initializer
         self.activation = LRelu_with_saturation(
@@ -76,7 +79,7 @@ class Conv1dActivation(nn.Module):
 
 class DenseActivation(nn.Module):
     def __init__(self, in_features, out_features, initializer, negative_slope, saturation):
-        super(DenseActivation, self).__init__()
+        super().__init__()
         self.linear = nn.Linear(in_features, out_features)
         self.initializer = initializer
         self.activation = LRelu_with_saturation(
@@ -91,7 +94,7 @@ class DenseActivation(nn.Module):
 
 class SelfAttention(nn.Module):
     def __init__(self, feature_dim, heads=1):
-        super(SelfAttention, self).__init__()
+        super().__init__()
         self.feature_dim = feature_dim
         self.heads = heads
         # self.padded_dim = self.feature_dim + (self.feature_dim % self.heads)
@@ -152,7 +155,7 @@ class SelfAttention(nn.Module):
 
 class Branch(nn.Module):
     def __init__(self, input_size, output_size, add_layer=1, dropout_rate=0.0):
-        super(Branch, self).__init__()
+        super().__init__()
         self.add_layer = add_layer
         if self.add_layer:
             self.fc1 = nn.Linear(input_size, output_size)
@@ -172,7 +175,7 @@ class Branch(nn.Module):
 
 class IM2Deep(L.LightningModule):
     def __init__(self, config, criterion):
-        super(IM2Deep, self).__init__()
+        super().__init__()
         self.config = config
         self.criterion = criterion
         self.mae = nn.L1Loss()
@@ -628,7 +631,7 @@ class IM2Deep(L.LightningModule):
 
 class IM2DeepMulti(L.LightningModule):
     def __init__(self, config, criterion):
-        super(IM2DeepMulti, self).__init__()
+        super().__init__()
         self.config = config
         self.criterion = criterion
 
@@ -1106,7 +1109,7 @@ class IM2DeepMulti(L.LightningModule):
 
 class IM2DeepMultiTransfer(L.LightningModule):
     def __init__(self, config, criterion):
-        super(IM2DeepMultiTransfer, self).__init__()
+        super().__init__()
         # TODO: config should be adapted in config file
         self.config = config
         self.criterion = criterion
@@ -1123,7 +1126,7 @@ class IM2DeepMultiTransfer(L.LightningModule):
         self.ConvGlobal = self.backbone.ConvGlobal
         self.OneHot = self.backbone.OneHot
 
-        if self.config.get("add_X_mol", False) == True:
+        if self.config.get("add_X_mol", False):
             self.MolDesc = self.backbone.MolDesc
 
         self.concat = list(self.backbone.Concat.children())[:-1]
@@ -1294,7 +1297,7 @@ class IM2DeepMultiTransfer(L.LightningModule):
 
 class IM2DeepTransfer(L.LightningModule):
     def __init__(self, config, criterion):
-        super(IM2DeepTransfer, self).__init__()
+        super().__init__()
 
         self.config = config
         self.criterion = criterion
@@ -1312,7 +1315,7 @@ class IM2DeepTransfer(L.LightningModule):
         self.ConvGlobal = self.backbone.ConvGlobal
         self.OneHot = self.backbone.OneHot
 
-        if self.config.get("add_X_mol", False) == True:
+        if self.config.get("add_X_mol", False):
             self.MolDesc = self.backbone.MolDesc
 
         self.concat = self.backbone.Concat
@@ -1439,7 +1442,7 @@ class IM2DeepTransfer(L.LightningModule):
 
 class FlexibleLossSorted(nn.Module):
     def __init__(self, diversity_weight=0.1):
-        super(FlexibleLossSorted, self).__init__()
+        super().__init__()
         self.diversity_weight = diversity_weight
 
     def forward(self, y1, y2, y_hat1, y_hat2):
@@ -1479,7 +1482,7 @@ class FlexibleLossSorted(nn.Module):
 
 class FlexibleLoss(nn.Module):
     def __init__(self, diversity_weight=0.1):
-        super(FlexibleLoss, self).__init__()
+        super().__init__()
         self.diversity_weight = diversity_weight
 
     def forward(self, y1, y2, y_hat1, y_hat2):

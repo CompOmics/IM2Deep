@@ -1,13 +1,11 @@
 """Tests for model operations module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
-import numpy as np
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 
 from im2deep import _model_ops
-from im2deep._exceptions import IM2DeepError
 
 
 class TestLoadModel:

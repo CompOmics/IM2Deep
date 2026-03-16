@@ -2,16 +2,16 @@
 """Training, predicting, and evaluating using IM2Deep (PyTorch)."""
 
 from __future__ import annotations
-import copy
+
 import logging
 import warnings
 from os import PathLike
 from pathlib import Path
 
+import lightning as L
 import torch
 from rich.progress import track
 from torch.utils.data import DataLoader, Dataset
-import lightning as L
 
 # Suppress PyTorch padding warning for conv1d with even kernels and odd dilation
 warnings.filterwarnings(

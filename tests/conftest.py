@@ -1,10 +1,10 @@
 """Pytest configuration and fixtures for IM2Deep tests."""
 
-import pytest
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from psm_utils import PSM, PSMList, Peptidoform
+import pytest
+from psm_utils import PSM, Peptidoform, PSMList
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def sample_psm_list_with_ccs():
             is_decoy=False,
             score=0.95,
             retention_time=100.5,
-            metadata={"CCS": float(450.5)},
+            metadata={"CCS": 450.5},
         ),
         PSM(
             peptidoform=Peptidoform("SEQUENCE/3"),
@@ -61,7 +61,7 @@ def sample_psm_list_with_ccs():
             is_decoy=False,
             score=0.92,
             retention_time=120.3,
-            metadata={"CCS": float(520.8)},
+            metadata={"CCS": 520.8},
         ),
         PSM(
             peptidoform=Peptidoform("TESTPEPTIDE/2"),
@@ -71,7 +71,7 @@ def sample_psm_list_with_ccs():
             is_decoy=False,
             score=0.88,
             retention_time=135.7,
-            metadata={"CCS": float(480.2)},
+            metadata={"CCS": 480.2},
         ),
         PSM(
             peptidoform=Peptidoform("ANOTHER/3"),
@@ -81,7 +81,7 @@ def sample_psm_list_with_ccs():
             is_decoy=False,
             score=0.90,
             retention_time=142.1,
-            metadata={"CCS": float(510.5)},
+            metadata={"CCS": 510.5},
         ),
     ]
     return PSMList(psm_list=psms)
