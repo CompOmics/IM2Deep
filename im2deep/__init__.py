@@ -30,7 +30,7 @@ from im2deep.utils import ccs2im, im2ccs
 try:
     __version__: str = version("im2deep")
 except PackageNotFoundError:
-    __version__ = "2.0.0-beta"  # Single source of truth for version
+    __version__ = "2.0.0-alpha.1"  # Single source of truth for version
 __all__ = [
     "predict",
     "predict_and_calibrate",
