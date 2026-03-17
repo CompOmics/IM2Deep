@@ -2,7 +2,7 @@
 
 import pytest
 
-from im2deep._exceptions import (
+from im2deep.exceptions import (
     CalibrationError,
     IM2DeepError,
 )

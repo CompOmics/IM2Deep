@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 from psm_utils import Peptidoform, PSMList
 
-from im2deep._exceptions import CalibrationError
 from im2deep.constants import DEFAULT_MULTI_REFERENCE_DATASET_PATH, DEFAULT_REFERENCE_DATASET_PATH
+from im2deep.exceptions import CalibrationError
 
 LOGGER = logging.getLogger(__name__)
 

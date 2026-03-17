@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from psm_utils import PSMList
 
-from im2deep._exceptions import IM2DeepError
+from im2deep.exceptions import IM2DeepError
 from im2deep.utils import (
     ccs2im,
     im2ccs,

@@ -7,7 +7,7 @@ import pytest
 from psm_utils import PSM, Peptidoform, PSMList
 
 from im2deep import core
-from im2deep._exceptions import IM2DeepError
+from im2deep.exceptions import IM2DeepError
 from im2deep.calibration import LinearCCSCalibration
 
 

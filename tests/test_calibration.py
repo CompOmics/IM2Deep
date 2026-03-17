@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from psm_utils import Peptidoform
 
-from im2deep._exceptions import CalibrationError
+from im2deep.exceptions import CalibrationError
 from im2deep.calibration import LinearCCSCalibration, get_default_reference
 
 

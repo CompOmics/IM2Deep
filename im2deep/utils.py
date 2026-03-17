@@ -28,7 +28,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
 
-from im2deep._exceptions import IM2DeepError
+from im2deep.exceptions import IM2DeepError
 from im2deep.constants import (
     MASS_GAS_N2,
     SUMMARY_CONSTANT,
