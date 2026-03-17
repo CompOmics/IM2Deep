@@ -4,7 +4,7 @@ import logging
 
 import lightning as L
 import torch
-from torch import nn
+from torch import Tensor, nn
 from torch.optim import Adam  # type: ignore[import]
 
 from im2deep._architectures.blocks import Conv1dActivation, DenseActivation
@@ -355,8 +355,14 @@ class IM2Deep(L.LightningModule):
         l1_norm = sum(torch.norm(p, 1) for p in self.parameters())
         return standard_loss + self.config["L1_alpha"] * l1_norm
 
-    def forward(self, atom_comp, diatom_comp, global_feats, one_hot, mol_desc=None):
-
+    def forward(
+        self,
+        atom_comp,
+        diatom_comp,
+        global_feats,
+        one_hot,
+        mol_desc: Tensor | None = None,
+    ):
         atom_comp = atom_comp.permute(0, 2, 1)
         diatom_comp = diatom_comp.permute(0, 2, 1)
         one_hot = one_hot.permute(0, 2, 1)
@@ -378,6 +384,8 @@ class IM2Deep(L.LightningModule):
         concatenated = torch.cat((atom_comp, diatom_comp, one_hot, global_feats), 1)
 
         if self.config["add_X_mol"]:
+            if mol_desc is None:
+                raise ValueError("`mol_desc` is required when `add_X_mol` is enabled.")
             concatenated = torch.cat((concatenated, mol_desc), 1)
 
         for layer in self.Concat:
@@ -494,10 +502,18 @@ class IM2DeepTransfer(L.LightningModule):
 
         self.concat = self.backbone.Concat
 
-    def forward(self, atom_comp, diatom_comp, global_feats, one_hot, mol_desc=None):
+    def forward(
+        self,
+        atom_comp,
+        diatom_comp,
+        global_feats,
+        one_hot,
+        mol_desc: Tensor | None = None,
+    ):
         atom_comp = atom_comp.permute(0, 2, 1)
         diatom_comp = diatom_comp.permute(0, 2, 1)
         one_hot = one_hot.permute(0, 2, 1)
+        mol_desc_tensor: Tensor | None = None
 
         for layer in self.ConvAtomComp:
             atom_comp = layer(atom_comp)
@@ -512,13 +528,18 @@ class IM2DeepTransfer(L.LightningModule):
             one_hot = layer(one_hot)
 
         if self.config["add_X_mol"]:
+            if mol_desc is None:
+                raise ValueError("`mol_desc` is required when `add_X_mol` is enabled.")
+            mol_desc_tensor = mol_desc
             for layer in self.MolDesc:
-                mol_desc = layer(mol_desc)
+                mol_desc_tensor = layer(mol_desc_tensor)
 
         concatenated = torch.cat((atom_comp, diatom_comp, one_hot, global_feats), 1)
 
         if self.config["add_X_mol"]:
-            concatenated = torch.cat((concatenated, mol_desc), 1)
+            if mol_desc_tensor is None:
+                raise ValueError("`mol_desc` is required when `add_X_mol` is enabled.")
+            concatenated = torch.cat((concatenated, mol_desc_tensor), 1)
 
         for layer in self.concat:
             concatenated = layer(concatenated)

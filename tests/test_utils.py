@@ -211,7 +211,7 @@ class TestCCSConversions:
     def test_im2ccs_different_charges(self):
         """Test conversions with different charge states."""
         im = 1.0
-        mz = 500.0
+        mz = 500
 
         ccs_z2 = im2ccs(im, 2, mz)
         ccs_z3 = im2ccs(im, 3, mz)

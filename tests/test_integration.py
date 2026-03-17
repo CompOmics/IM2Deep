@@ -136,7 +136,7 @@ class TestEndToEndWorkflow:
     @pytest.mark.integration
     def test_file_parsing_to_prediction(self, tmp_path):
         """Test complete workflow from file parsing to prediction."""
-        from im2deep.utils import parse_input
+        from im2deep._io_helpers import parse_input
 
         # Create test file
         input_file = tmp_path / "input.csv"
@@ -183,7 +183,7 @@ class TestEndToEndWorkflow:
         """Test that errors propagate correctly through the workflow."""
         # Invalid PSMList should raise IM2DeepError
         with pytest.raises(IM2DeepError):
-            core.predict(None)
+            core.predict(None)  # type: ignore
 
         # Empty PSMList should raise error
         with pytest.raises(IM2DeepError):
@@ -195,7 +195,7 @@ class TestDataConsistency:
 
     def test_psm_list_preservation(self, sample_psm_list):
         """Test that PSMList properties are preserved through processing."""
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(sample_psm_list)
 
@@ -208,12 +208,12 @@ class TestDataConsistency:
 
     def test_ccs_value_consistency(self, sample_psm_list_with_ccs):
         """Test that CCS values remain consistent."""
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(sample_psm_list_with_ccs, needs_target=True)
 
         for orig, val in zip(sample_psm_list_with_ccs, validated, strict=False):
-            assert orig.metadata["CCS"] == val.metadata["CCS"]
+            assert orig.metadata["CCS"] == val.metadata["CCS"]  # type: ignore
 
     def test_array_shape_consistency(self, sample_peptidoforms, sample_predicted_ccs):
         """Test that array shapes remain consistent."""
@@ -254,7 +254,7 @@ class TestEdgeCases:
         )
         psm_list = PSMList(psm_list=[psm])
 
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(psm_list)
 
@@ -278,7 +278,7 @@ class TestEdgeCases:
         psm_list = PSMList(psm_list=[psm_valid, psm_high_charge])
 
         # Should filter out high charges (>6) but keep valid ones
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(psm_list)
         # After filtering, only the valid charge state should remain
@@ -295,7 +295,7 @@ class TestEdgeCases:
         )
         psm_list = PSMList(psm_list=[psm])
 
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(psm_list)
         assert len(validated) == 1
@@ -311,7 +311,7 @@ class TestEdgeCases:
         )
         psm_list = PSMList(psm_list=[psm])
 
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(psm_list)
         assert len(validated) == 1
@@ -326,7 +326,7 @@ class TestEdgeCases:
         )
         psm_list = PSMList(psm_list=[psm])
 
-        from im2deep.utils import validate_psm_list
+        from im2deep._io_helpers import validate_psm_list
 
         validated = validate_psm_list(psm_list)
         assert len(validated) == 1

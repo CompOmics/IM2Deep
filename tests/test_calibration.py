@@ -174,7 +174,7 @@ class TestLinearCCSCalibration:
 
         source_df = pd.DataFrame({"peptidoform": [Peptidoform("DIFFERENT/2")], "CCS": [460.0]})
 
-        shift = calibration.calculate_ccs_shift(target_df, source_df)
+        shift = calibration.calculate_ccs_shift_global(target_df, source_df)
 
         assert shift == 0.0  # No overlap returns 0.0
 
@@ -190,7 +190,7 @@ class TestLinearCCSCalibration:
 
         source_df = pd.DataFrame({"peptidoform": peptidoforms, "CCS": [445.0, 515.0]})
 
-        shift = calibration.calculate_ccs_shift(target_df, source_df)
+        shift = calibration.calculate_ccs_shift_global(target_df, source_df)
 
         assert isinstance(shift, float)
         assert abs(shift - 5.0) < 0.1  # Should be approximately 5.0
@@ -259,7 +259,7 @@ class TestLinearCCSCalibration:
         source_df = pd.DataFrame({"peptidoform": sample_peptidoforms, "CCS": sample_ccs_values})
 
         with pytest.raises(CalibrationError, match="Invalid charge state"):
-            calibration.calculate_ccs_shift(target_df, source_df)
+            calibration.calculate_ccs_shift_global(target_df, source_df)
 
     def test_shift_broadcasting(self, sample_peptidoforms):
         """Test that shifts broadcast correctly for multi-output."""

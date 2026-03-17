@@ -36,11 +36,11 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+from rich.text import Text
 
 from im2deep import __version__, core
-from im2deep.utils import (
+from im2deep._io_helpers import (
     DefaultCommandGroup,
-    build_credits,
     infer_output_name,
     parse_input,
     setup_logging,
@@ -92,7 +92,7 @@ def cli(ctx, logging_level, profile, profile_name):
     ctx.obj["profile"] = profile
     ctx.obj["profile_name"] = profile_name
 
-    console.print(build_credits())
+    console.print(_build_credits())
 
 
 # Implement psm_utils reading for calibration and prediction PSMLists
@@ -187,7 +187,7 @@ def predict(ctx, *args, **kwargs):
         _run_predict(*args, **kwargs)
     finally:
         if profile_enabled:
-            profiler.disable()
+            profiler.disable()  # type: ignore
 
             # Get the IM2Deep root directory (two levels up from this file)
             root_dir = Path(__file__).parent.parent
@@ -195,7 +195,7 @@ def predict(ctx, *args, **kwargs):
             profiles_dir.mkdir(exist_ok=True)
 
             profile_output = profiles_dir / ctx.obj.get("profile_name", "im2deep_profile.prof")
-            profiler.dump_stats(profile_output)
+            profiler.dump_stats(profile_output)  # type: ignore
             LOGGER.info(f"Profiling data saved to {profile_output}")
             LOGGER.info(f"View with: snakeviz {profile_output}")
 
@@ -282,10 +282,26 @@ def _run_predict(*args, **kwargs):
 #     LOGGER.info(f"Training completed. Model saved to {output_model}")
 
 
+def _build_credits():
+    """Build credits"""
+    text = Text()
+    text.append("\n")
+    text.append("IM2Deep\n", style="bold link https://github.com/compomics/im2deep")
+    text.append("Developed at CompOmics, VIB / Ghent University, Belgium.\n")
+    text.append("Please cite: ")
+    text.append(
+        "Devreese et al. Anal. Chem. (2025)",
+        style="link https://pubs.acs.org/doi/10.1021/acs.analchem.5c01142",
+    )
+    text.append("\n")
+    text.stylize("cyan")
+    return text
+
+
 def main():
     cli(obj={})
 
 
 if __name__ == "__main__":
     main()
-    build_credits()
+    _build_credits()

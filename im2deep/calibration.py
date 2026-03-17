@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -35,8 +36,8 @@ class Calibration(ABC):
     @abstractmethod
     def fit(
         self,
-        target: PSMList,
-        source: PSMList,
+        psm_df_target: pd.DataFrame,
+        psm_df_source: pd.DataFrame,
     ) -> None:
         """Fit the calibration using target and source CCS values."""
         ...
@@ -44,8 +45,8 @@ class Calibration(ABC):
     @abstractmethod
     def transform(
         self,
-        source: PSMList,
-    ) -> PSMList:
+        psm_df: pd.DataFrame,
+    ) -> np.ndarray:
         """Transform source CCS into the calibrated target space."""
         ...
 
@@ -99,7 +100,7 @@ class LinearCCSCalibration(Calibration):
             # For per-charge calibration, calculate shifts for all charges
             LOGGER.debug("Calculating shift factors per charge state...")
             try:
-                self.charge_shifts = self.calculate_ccs_shift(
+                self.charge_shifts: dict[int, float] = self.calculate_ccs_shift_per_charge(
                     psm_df_target,
                     psm_df_source,
                 )
@@ -142,7 +143,7 @@ class LinearCCSCalibration(Calibration):
         else:
             # For global calibration, calculate a single shift
             try:
-                self.general_shift = self.calculate_ccs_shift(
+                self.general_shift = self.calculate_ccs_shift_global(
                     psm_df_target,
                     psm_df_source,
                 )
@@ -181,7 +182,7 @@ class LinearCCSCalibration(Calibration):
 
         # Extract charge from peptidoform column efficiently
         psm_df["charge"] = psm_df["peptidoform"].apply(
-            lambda x: int(str(x).split("/")[-1]) if isinstance(x, str) else x.precursor_charge
+            lambda x: int(str(x).split("/")[-1]) if isinstance(x, str) else int(x.precursor_charge)
         )
 
         if self.per_charge:
@@ -210,13 +211,13 @@ class LinearCCSCalibration(Calibration):
 
         return predicted_ccs_calibrated
 
-    def calculate_ccs_shift(
+    def calculate_ccs_shift_global(
         self,
         target_df: pd.DataFrame,
         source_df: pd.DataFrame,
-    ) -> dict[int, float] | float:
+    ) -> float:
         """
-        Calculate CCS shift factors between target and source PSMLists.
+        Calculate a single global CCS shift factor.
 
         Parameters
         ----------
@@ -234,6 +235,7 @@ class LinearCCSCalibration(Calibration):
         ------
         CalibrationError
             If no overlapping peptides are found for shift calculation.
+
         Notes
         -----
         The function automatically filters out charges >6 as IM2Deep predictions are not reliable for higher charge states.
@@ -244,29 +246,55 @@ class LinearCCSCalibration(Calibration):
                 f"Invalid charge state {self.use_charge_state} for global shift calculation."
             )
 
-        if not self.per_charge:
-            # Global calibration using specified charge state
-            if self.use_charge_state is None:
-                self.use_charge_state = 2  # Default charge state
-                LOGGER.debug(
-                    "No charge state specified for global calibration. Using default charge state 2 for global shift calculation."
-                )
-
-            shift_factor = self._compute_ccs_shift(
-                target_df,
-                source_df,
-                self.use_charge_state,
-            )
-            LOGGER.debug(f"Global CCS shift factor: {shift_factor:.3f}")
-            return shift_factor
-        else:
-            # Per-charge calibration
-            shift_factor_dict = self._compute_ccs_shift_per_charge(
-                target_df,
-                source_df,
+        if self.use_charge_state is None:
+            self.use_charge_state = 2  # Default charge state
+            LOGGER.debug(
+                "No charge state specified for global calibration. Using default charge state 2 "
+                "for global shift calculation."
             )
 
-            return shift_factor_dict
+        shift_factor = self._compute_ccs_shift(
+            target_df,
+            source_df,
+            self.use_charge_state,
+        )
+        LOGGER.debug(f"Global CCS shift factor: {shift_factor:.3f}")
+        return shift_factor
+
+    def calculate_ccs_shift_per_charge(
+        self,
+        target_df: pd.DataFrame,
+        source_df: pd.DataFrame,
+    ) -> dict[int, float]:
+        """
+        Calculate CCS shift factors per charge state.
+
+        Parameters
+        ----------
+        target_df
+            DataFrame containing peptidoforms and observed CCS values from the target PSMList.
+        source_df
+            DataFrame containing peptidoforms and predicted CCS values from the source PSMList.
+
+        Returns
+        -------
+        dict[int, float]
+            Shift factors per charge state.
+
+        Raises
+        ------
+        CalibrationError
+            If no overlapping peptides are found for any charge state.
+        """
+        if self.use_charge_state is not None and not 1 <= self.use_charge_state <= 6:
+            raise CalibrationError(
+                f"Invalid charge state {self.use_charge_state} for global shift calculation."
+            )
+
+        return self._compute_ccs_shift_per_charge(
+            target_df,
+            source_df,
+        )
 
     @staticmethod
     def _compute_ccs_shift(
@@ -290,7 +318,11 @@ class LinearCCSCalibration(Calibration):
 
         def get_charge(pf):
             if isinstance(pf, Peptidoform):
-                return pf.precursor_charge
+                if pf.precursor_charge is None:
+                    raise CalibrationError(
+                        f"Peptidoform {pf} is missing precursor charge information."
+                    )
+                return int(pf.precursor_charge)
             else:
                 return int(str(pf).split("/")[-1])
 
@@ -389,7 +421,11 @@ class LinearCCSCalibration(Calibration):
 
         def get_charge(pf):
             if isinstance(pf, Peptidoform):
-                return pf.precursor_charge
+                if pf.precursor_charge is None:
+                    raise CalibrationError(
+                        f"Peptidoform {pf} is missing precursor charge information."
+                    )
+                return int(pf.precursor_charge)
             else:
                 return int(str(pf).split("/")[-1])
 
@@ -417,19 +453,24 @@ class LinearCCSCalibration(Calibration):
 
         # Calculate shift per charge using groupby
         merged["shift"] = merged["CCS_target"] - merged["CCS_source"]
-        shift_factors = merged.groupby("charge")["shift"].mean().to_dict()
+        shift_by_charge = merged.groupby("charge")["shift"].mean()
+        shift_factors: dict[int, float] = {
+            int(cast(int, charge)): float(shift) for charge, shift in shift_by_charge.items()
+        }
 
         # Log information for each charge state
         charge_counts = merged.groupby("charge").size()
         for charge, count in charge_counts.items():
-            if count < 10:
+            charge_int = int(cast(int, charge))
+            count_int = int(cast(int, count))
+            if count_int < 10:
                 LOGGER.warning(
-                    f"Only {count} overlapping peptides found for charge state {charge}. "
+                    f"Only {count_int} overlapping peptides found for charge state {charge_int}. "
                     "Shift calculation may be unreliable."
                 )
-            if abs(shift_factors[charge]) > 100.0:
+            if abs(shift_factors[charge_int]) > 100.0:
                 LOGGER.warning(
-                    f"Unusually large CCS shift ({shift_factors[charge]:.2f}) detected for charge state {charge}."
+                    f"Unusually large CCS shift ({shift_factors[charge_int]:.2f}) detected for charge state {charge_int}."
                     " Please verify the calibration datasets."
                 )
 

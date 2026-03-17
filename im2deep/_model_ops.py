@@ -1,4 +1,4 @@
-# TODO: evaluate whether these functions can just be imported from DeepLC
+# TODO: Evaluate whether these functions can just be imported from DeepLC or use Lightning?
 """Training, predicting, and evaluating using IM2Deep (PyTorch)."""
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ def load_model(
     """Load a model from a file or return a randomly initialized model if none is provided."""
     # If device is not specified, use the default device (GPU if available, else CPU)
     selected_device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    LOGGER.debug(f"Using device: {selected_device}")
 
     # Load model from file if a path is provided
     if isinstance(model, (str, Path)):
@@ -75,7 +76,6 @@ def load_model(
     # Ensure the model is on the specified device
     if isinstance(loaded_model, torch.nn.Module):
         loaded_model.to(selected_device)
-        loaded_model.eval()  # Set model to evaluation mode
     else:
         raise TypeError(
             f"Loaded model is not a PyTorch Module, got {type(loaded_model)} instead. "
@@ -121,14 +121,16 @@ def predict(
 
     # TODO: implement custom model inference
     LOGGER.debug("Loading model for prediction.")
+
+    # TODO: Implement load_model function here (also config) and path to default model?
     model = _get_architecture(
         multi=multi,
     ).load_from_checkpoint(
-        checkpoint_path=model,
+        checkpoint_path=model,  # type: ignore # TODO: Match with function signature
         config=_get_model_config(multi=multi),
         criterion=_get_loss_function(multi=multi),
     )
-    model.to(device)
+    model.eval()
     LOGGER.debug(f"Model loaded on device: {device}")
 
     data_loader = DataLoader(
