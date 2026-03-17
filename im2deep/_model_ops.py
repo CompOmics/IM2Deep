@@ -8,10 +8,13 @@ import warnings
 from os import PathLike
 from pathlib import Path
 
-import lightning as L
 import torch
 from rich.progress import track
 from torch.utils.data import DataLoader, Dataset
+
+from im2deep._architectures.im2deep_multi import IM2DeepMultiTransfer
+from im2deep._architectures.im2deep_single import IM2Deep
+from im2deep._architectures.losses import FlexibleLossSorted
 
 # Suppress PyTorch padding warning for conv1d with even kernels and odd dilation
 warnings.filterwarnings(
@@ -162,15 +165,11 @@ def _predict_loop(
     return torch.cat(all_predictions, dim=0).squeeze()
 
 
-def _get_architecture(multi: bool) -> L.LightningModule:
+def _get_architecture(multi: bool) -> type[IM2DeepMultiTransfer] | type[IM2Deep]:
     """Get the model architecture based on whether multi-output is needed."""
     if multi:
-        from im2deep._architecture import IM2DeepMultiTransfer
-
         return IM2DeepMultiTransfer
     else:
-        from im2deep._architecture import IM2Deep
-
         return IM2Deep
 
 
@@ -186,11 +185,9 @@ def _get_model_config(multi: bool) -> dict:
         return DEFAULT_CONFIG
 
 
-def _get_loss_function(multi: bool) -> torch.nn.modules.loss._Loss | torch.nn.Module:
+def _get_loss_function(multi: bool) -> FlexibleLossSorted | torch.nn.L1Loss:
     """Get the loss function based on whether multi-output is needed."""
     if multi:
-        from im2deep._architecture import FlexibleLossSorted
-
         return FlexibleLossSorted()
     else:
         return torch.nn.L1Loss()
