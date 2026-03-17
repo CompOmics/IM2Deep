@@ -16,6 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
       - name: Lint
         uses: astral-sh/ruff-action@v3
         with:
@@ -26,6 +30,9 @@ jobs:
         with:
           args: "format --check --diff im2deep"
           src: "im2deep"
+
+      - name: Type check
+        run: uvx ty check im2deep
 
   test-python-package:
     needs: lint-python-package
