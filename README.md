@@ -13,6 +13,11 @@ Install with pip:
 pip install im2deep
 ```
 
+For local development/docs:
+```bash
+uv sync --group dev --group docs
+```
+
 ## Usage
 
 ### Command Line Interface (CLI)

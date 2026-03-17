@@ -1,5 +1,4 @@
 """
-# TODO: update docstring
 Command line interface for IM2Deep.
 
 This module provides a comprehensive command-line interface for the IM2Deep
@@ -27,16 +26,6 @@ Usage:
     Ion mobility output:
         im2deep input_peptides.csv -c calibration_data.csv -i
 
-Dependencies:
-    - click: Command-line interface framework
-    - psm_utils: Peptide and PSM data handling
-    - rich: Enhanced logging and progress display
-    - pandas: Data manipulation
-
-Authors:
-    - Robbe Devreese
-    - Robbin Bouwmeester
-    - Ralf Gabriels
 """
 
 from __future__ import annotations
@@ -180,7 +169,8 @@ def cli(ctx, logging_level, profile, profile_name):
     help="Set logging verbosity level.",
 )
 def predict(ctx, *args, **kwargs):
-    """Predict CCS values for peptides (default command).
+    """
+    Predict CCS values for peptides (default command).
 
     If no calibration file is provided with -c, performs prediction only.
     With -c, performs calibration and prediction for improved accuracy.
@@ -293,163 +283,7 @@ def _run_predict(*args, **kwargs):
 
 
 def main():
-    # try:
     cli(obj={})
-    # except Exception as e:
-    #     LOGGER.error(f"Unexpected error in IM2Deep CLI: {e}")
-    #     sys.exit(1)
-
-
-# def main(
-#     psm_file: str,
-#     calibration_file: Optional[str] = None,
-#     output_file: Optional[str] = None,
-#     model_name: str = "tims",
-#     multi: bool = False,
-#     log_level: str = "info",
-#     n_jobs: Optional[int] = None,
-#     use_single_model: bool = True,
-#     calibrate_per_charge: bool = True,
-#     use_charge_state: int = 2,
-#     ion_mobility: bool = False,
-# ) -> None:
-#     """
-#     IM2Deep: Predict CCS values for peptides using deep learning.
-
-#     IM2Deep predicts Collisional Cross Section (CCS) values for peptides,
-#     including those with post-translational modifications. The tool supports
-#     both single-conformer and multi-conformer predictions with optional
-#     calibration using reference datasets.
-
-#     INPUT_FILE should be a CSV file with columns:
-#     \b
-#     - seq: Peptide sequence (required)
-#     - modifications: Modifications in format "position|name" (required, can be empty)
-#     - charge: Charge state (required)
-
-#     For calibration files, an additional 'CCS' column with observed values is required.
-
-#     Examples:
-#     \b
-#         # Basic prediction
-#         im2deep peptides.csv
-
-#         # With calibration (recommended)
-#         im2deep peptides.csv -c calibration.csv
-
-#         # Multi-conformer prediction
-#         im2deep peptides.csv -c calibration.csv -e
-
-#         # Ion mobility output
-#         im2deep peptides.csv -c calibration.csv -i
-
-#         # Ensemble prediction with custom output
-#         im2deep peptides.csv -c calibration.csv -o results.csv --use-single-model False
-#     """
-#     try:
-#         # Setup logging first
-#         setup_logging(log_level)
-
-#         LOGGER.info("IM2Deep command-line interface started")
-#         LOGGER.debug(
-#             f"Input arguments: psm_file={psm_file}, calibration_file={calibration_file}, "
-#             f"multi={multi}, ion_mobility={ion_mobility}"
-#         )
-
-#         # Import main functionality (after logging setup)
-#         from im2deep._exceptions import IM2DeepError
-#         from im2deep.im2deep import predict_ccs
-
-#         # Validate input files
-#         _validate_file_format(psm_file, "input")
-#         if calibration_file:
-#             _validate_file_format(calibration_file, "calibration")
-
-#         # Parse input files
-#         LOGGER.info("Parsing input files...")
-
-#         # Try to determine file format
-#         with open(psm_file, "r", encoding="utf-8") as f:
-#             first_line = f.readline().strip()
-
-#         # Check if it's the expected CSV format
-#         if "modifications" in first_line and "seq" in first_line:
-#             psm_list_pred = _parse_csv_input(psm_file, "prediction")
-#             df_pred = pd.read_csv(psm_file).fillna("")
-#         else:
-#             # Try psm_utils for other formats
-#             try:
-#                 psm_list_pred = read_file(psm_file)
-#                 df_pred = None
-#                 LOGGER.info(f"Loaded {len(psm_list_pred)} PSMs using psm_utils")
-#             except PSMUtilsIOException as e:
-#                 raise click.ClickException(
-#                     f"Could not parse input file. Expected CSV with columns 'seq', 'modifications', 'charge' "
-#                     f"or a format supported by psm_utils. Error: {e}"
-#                 )
-
-#         # Parse calibration file
-#         psm_list_cal = None
-#         df_cal = None
-#         if calibration_file:
-#             with open(calibration_file, "r", encoding="utf-8") as f:
-#                 cal_first_line = f.readline().strip()
-
-#             if (
-#                 "modifications" in cal_first_line
-#                 and "seq" in cal_first_line
-#                 and "CCS" in cal_first_line
-#             ):
-#                 psm_list_cal = _parse_csv_input(calibration_file, "calibration")
-#                 df_cal = pd.read_csv(calibration_file).fillna("")
-#             else:
-#                 raise click.ClickException(
-#                     "Calibration file must be CSV with columns: 'seq', 'modifications', 'charge', 'CCS'"
-#                 )
-#         else:
-#             LOGGER.warning(
-#                 "No calibration file provided. Predictions will be uncalibrated. "
-#                 "Calibration is HIGHLY recommended for accurate results."
-#             )
-
-#         # Set up output file
-#         if not output_file:
-#             input_path = Path(psm_file)
-#             output_file = input_path.parent / f"{input_path.stem}_IM2Deep-predictions.csv"
-
-#         LOGGER.info(f"Output will be written to: {output_file}")
-
-#         # Run prediction
-#         LOGGER.info("Starting CCS prediction...")
-#         predict_ccs(
-#             psm_list_pred,
-#             psm_list_cal,
-#             output_file=output_file,
-#             model_name=model_name,
-#             multi=multi,
-#             calibrate_per_charge=calibrate_per_charge,
-#             use_charge_state=use_charge_state,
-#             n_jobs=n_jobs,
-#             use_single_model=use_single_model,
-#             ion_mobility=ion_mobility,
-#             pred_df=df_pred,
-#             cal_df=df_cal,
-#             write_output=True,
-#         )
-
-#         LOGGER.info("IM2Deep completed successfully!")
-
-#     except IM2DeepError as e:
-#         LOGGER.error(f"IM2Deep error: {e}")
-#         sys.exit(1)
-#     except click.ClickException:
-#         # Re-raise click exceptions to preserve formatting
-#         raise
-#     except Exception as e:
-#         LOGGER.error(f"Unexpected error: {e}")
-#         if log_level.lower() == "debug":
-#             LOGGER.exception("Full traceback:")
-#         sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -20,20 +20,6 @@ Example:
     >>> from psm_utils.psm_list import PSMList
     >>> predictions = predict_ccs(psm_list, calibration_data)
 
-Dependencies:
-    - deeplc: For deep learning model infrastructure
-    - psm_utils: For peptide and PSM handling
-    - pandas: For data manipulation
-    - numpy: For numerical computations
-    - click: For command-line interface
-
-Authors:
-    - Robbe Devreese
-    - Robbin Bouwmeester
-    - Ralf Gabriels
-
-License:
-    Apache License 2.0
 """
 
 __version__ = "2.0.0-beta"
