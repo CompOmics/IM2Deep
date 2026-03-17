@@ -15,28 +15,25 @@ Constants:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-from typing import Any
 import logging
-from rich.text import Text
-import gzip
+from pathlib import Path
 
 import click
 import numpy as np
-import psm_utils.io
 import pandas as pd
+import psm_utils.io
+from psm_utils.psm import PSM
+from psm_utils.psm_list import PSMList
 from rich.console import Console
 from rich.logging import RichHandler
-from psm_utils.psm_list import PSMList
-from psm_utils.psm import PSM
+from rich.text import Text
 
 from im2deep._exceptions import IM2DeepError
 from im2deep.constants import (
-    SUMMARY_CONSTANT,
     MASS_GAS_N2,
-    TEMP,
+    SUMMARY_CONSTANT,
     T_DIFF,
+    TEMP,
 )
 
 console = Console()
@@ -286,7 +283,7 @@ def parse_input(
     is_legacy_format = False
     try:
         # Read first line to check column names
-        with open(input_file, "r") as f:
+        with open(input_file) as f:
             first_line = f.readline().strip()
 
         # Check if it has legacy format columns
@@ -307,7 +304,7 @@ def parse_input(
         # Try to parse with psm_utils
         try:
             psm_list = psm_utils.io.read_file(input_file, filetype=filetype or "infer")
-            LOGGER.debug(f"Successfully read file using psm_utils.")
+            LOGGER.debug("Successfully read file using psm_utils.")
         except Exception as e:
             # If psm_utils fails, try legacy format as fallback
             LOGGER.warning(f"Failed to read PSM file using psm_utils: {e}")
@@ -345,7 +342,7 @@ def _parse_legacy_format(input_file: str | Path) -> PSMList:
         df = pd.read_csv(input_file, sep=None, engine="python")
         df = df.fillna("")  # Replace NaN with empty strings
     except Exception as e:
-        raise IM2DeepError(f"Failed to read file as delimited text: {e}")
+        raise IM2DeepError(f"Failed to read file as delimited text: {e}") from e
 
     required_cols_legacy = ["seq", "modifications", "charge"]
     missing_cols = set(required_cols_legacy) - set(df.columns)

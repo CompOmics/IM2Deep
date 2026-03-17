@@ -1,14 +1,14 @@
 """Integration tests for IM2Deep package."""
 
-import pytest
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from psm_utils import PSM, PSMList, Peptidoform
+import pytest
+from psm_utils import PSM, Peptidoform, PSMList
 
 from im2deep import core
-from im2deep.calibration import LinearCCSCalibration
 from im2deep._exceptions import IM2DeepError
+from im2deep.calibration import LinearCCSCalibration
 
 
 class TestEndToEndWorkflow:

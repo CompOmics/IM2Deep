@@ -1,12 +1,13 @@
 """Tests for CLI module."""
 
-import pytest
-from click.testing import CliRunner
-from unittest.mock import patch, MagicMock
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from im2deep.__main__ import cli, predict
+import pytest
+from click.testing import CliRunner
+
+from im2deep.__main__ import cli
 
 
 class TestCLI:
@@ -193,8 +194,9 @@ class TestSetupLogging:
 
     def test_setup_logging_default(self):
         """Test setup_logging with info level."""
-        from im2deep.utils import setup_logging
         import logging
+
+        from im2deep.utils import setup_logging
 
         setup_logging("info")
 
@@ -203,8 +205,9 @@ class TestSetupLogging:
 
     def test_setup_logging_debug(self):
         """Test setup_logging with debug level."""
-        from im2deep.utils import setup_logging
         import logging
+
+        from im2deep.utils import setup_logging
 
         setup_logging("debug")
 
@@ -213,8 +216,9 @@ class TestSetupLogging:
 
     def test_setup_logging_warning(self):
         """Test setup_logging with warning level."""
-        from im2deep.utils import setup_logging
         import logging
+
+        from im2deep.utils import setup_logging
 
         setup_logging("warning")
 
@@ -223,8 +227,9 @@ class TestSetupLogging:
 
     def test_setup_logging_affects_submodules(self):
         """Test that setup_logging affects all im2deep submodules."""
-        from im2deep.utils import setup_logging
         import logging
+
+        from im2deep.utils import setup_logging
 
         setup_logging("debug")
 
@@ -238,7 +243,8 @@ class TestDefaultCommandGroup:
 
     def test_default_command_group_import(self):
         """Test that DefaultCommandGroup can be imported."""
-        from im2deep.utils import DefaultCommandGroup
         import click
+
+        from im2deep.utils import DefaultCommandGroup
 
         assert issubclass(DefaultCommandGroup, click.Group)

@@ -1,9 +1,10 @@
 """Tests for core module."""
 
-import pytest
+from unittest.mock import MagicMock, patch
+
 import numpy as np
+import pytest
 import torch
-from unittest.mock import Mock, patch, MagicMock
 
 from im2deep import core
 from im2deep._exceptions import IM2DeepError

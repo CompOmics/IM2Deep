@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import cast
 
-import pandas as pd
 import numpy as np
-from psm_utils import PSMList, Peptidoform
+import pandas as pd
+from psm_utils import Peptidoform, PSMList
 
 from im2deep._exceptions import CalibrationError
-from im2deep.utils import parse_input
-from im2deep.constants import DEFAULT_REFERENCE_DATASET_PATH, DEFAULT_MULTI_REFERENCE_DATASET_PATH
+from im2deep.constants import DEFAULT_MULTI_REFERENCE_DATASET_PATH, DEFAULT_REFERENCE_DATASET_PATH
 
 LOGGER = logging.getLogger(__name__)
 
@@ -110,7 +108,7 @@ class LinearCCSCalibration(Calibration):
                 LOGGER.warning(
                     f"Could not calculate charge-specific shift factors: {e}. Using 0.0 as fallback."
                 )
-                self.charge_shifts = {charge: 0.0 for charge in range(1, 7)}
+                self.charge_shifts = dict.fromkeys(range(1, 7), 0.0)
 
             # Set general shift as the mean of calculated charge shifts or charge 2 if available
             if 2 in self.charge_shifts and self.charge_shifts[2] != 0.0:
@@ -153,7 +151,7 @@ class LinearCCSCalibration(Calibration):
                     f"Could not calculate general shift factor: {e}. Using 0.0 as fallback."
                 )
                 self.general_shift = 0.0
-            self.charge_shifts = {charge: self.general_shift for charge in range(1, 7)}
+            self.charge_shifts = dict.fromkeys(range(1, 7), self.general_shift)
 
         self.used_charges = set(self.charge_shifts.keys())
         self.fitted = True
@@ -172,7 +170,7 @@ class LinearCCSCalibration(Calibration):
         if "peptidoform" not in psm_df.columns:
             raise CalibrationError("Input DataFrame must contain 'peptidoform' column.")
 
-        if not "predicted_CCS_uncalibrated" in psm_df.columns and "metadata" in psm_df.columns:
+        if "predicted_CCS_uncalibrated" not in psm_df.columns and "metadata" in psm_df.columns:
             psm_df["predicted_CCS_uncalibrated"] = psm_df["metadata"].apply(
                 lambda x: (
                     x["predicted_CCS_uncalibrated"]

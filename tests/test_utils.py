@@ -1,18 +1,18 @@
 """Tests for utils module."""
 
-import pytest
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from psm_utils import PSM, PSMList, Peptidoform
 
+import numpy as np
+import pandas as pd
+import pytest
+from psm_utils import PSMList
+
+from im2deep._exceptions import IM2DeepError
 from im2deep.utils import (
-    validate_psm_list,
-    parse_input,
     ccs2im,
     im2ccs,
+    parse_input,
+    validate_psm_list,
 )
-from im2deep._exceptions import IM2DeepError
 
 
 class TestValidatePSMList:
