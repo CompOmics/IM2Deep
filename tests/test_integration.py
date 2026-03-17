@@ -1,14 +1,13 @@
 """Integration tests for IM2Deep package."""
 
-
 import numpy as np
 import pandas as pd
 import pytest
 from psm_utils import PSM, Peptidoform, PSMList
 
 from im2deep import core
-from im2deep.exceptions import IM2DeepError
 from im2deep.calibration import LinearCCSCalibration
+from im2deep.exceptions import IM2DeepError
 
 
 class TestEndToEndWorkflow:
@@ -204,7 +203,7 @@ class TestDataConsistency:
         assert len(validated) == len(sample_psm_list)
 
         # Check that peptidoforms are preserved
-        for orig, val in zip(sample_psm_list, validated):
+        for orig, val in zip(sample_psm_list, validated, strict=False):
             assert orig.peptidoform == val.peptidoform
 
     def test_ccs_value_consistency(self, sample_psm_list_with_ccs):
@@ -213,7 +212,7 @@ class TestDataConsistency:
 
         validated = validate_psm_list(sample_psm_list_with_ccs, needs_target=True)
 
-        for orig, val in zip(sample_psm_list_with_ccs, validated):
+        for orig, val in zip(sample_psm_list_with_ccs, validated, strict=False):
             assert orig.metadata["CCS"] == val.metadata["CCS"]
 
     def test_array_shape_consistency(self, sample_peptidoforms, sample_predicted_ccs):

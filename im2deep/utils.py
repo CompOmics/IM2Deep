@@ -16,6 +16,7 @@ Constants:
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from pathlib import Path
 
 import click
@@ -28,13 +29,13 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
 
-from im2deep.exceptions import IM2DeepError
 from im2deep.constants import (
     MASS_GAS_N2,
     SUMMARY_CONSTANT,
     T_DIFF,
     TEMP,
 )
+from im2deep.exceptions import IM2DeepError
 
 console = Console()
 
@@ -261,7 +262,9 @@ def parse_input(
                     continue
 
                 if "CCS" in row:
-                    precursor.metadata["CCS"] = float(row["CCS"])
+                    if precursor.metadata is None:
+                        precursor.metadata = {}
+                    precursor.metadata["CCS"] = float(row["CCS"])  # type: ignore
                 list_of_precursors.append(precursor)
             except Exception as e:
                 LOGGER.warning("Error parsing row %d: %s. Skipping.", idx, e)
@@ -411,17 +414,20 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
             "Please provide a valid PSMList object."
         )
 
-    # Filter high charge states (IM2Deep predictions are not reliable for charges >6)
+    # Filter missing and high charge states (IM2Deep predictions are not reliable for charges >6)
     original_size = len(psm_list)
-    psm_list_filtered = PSMList(
-        psm_list=[psm for psm in psm_list if psm.peptidoform.precursor_charge <= 6]
-    ).copy()
+    charges = np.array([psm.peptidoform.precursor_charge for psm in psm_list])
+    psm_list_filtered = psm_list[charges != None]  # noqa: E711
+    psm_list_filtered = psm_list_filtered[charges <= 6]
+
+    # TODO: Is deepcopy really necessary or can it be avoided?
+    psm_list_filtered = deepcopy(psm_list_filtered)
 
     if len(psm_list_filtered) < original_size:
         filtered_count = original_size - len(psm_list_filtered)
         LOGGER.warning(
-            f"Filtered out {filtered_count} PSMs with charge states >6 for shift calculation.\n"
-            f"Predictions are not reliable for z>6."
+            f"Filtered out {filtered_count} PSMs with charge states missing or >6 for shift"
+            "calculation.Predictions are not reliable for charge states >6."
         )
 
     if len(psm_list_filtered) == 0:
@@ -437,11 +443,17 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
 
         # If ion_mobility is present, convert to CCS
         for psm in psm_list_filtered:
-            if psm.ion_mobility is not None and psm.metadata.get("CCS") is None:
-                psm.metadata["CCS"] = im2ccs(
-                    psm.ion_mobility,
-                    psm.peptidoform.theoretical_mz,
-                    psm.peptidoform.precursor_charge,
+            if (
+                psm.ion_mobility is not None
+                and psm.metadata is not None
+                and psm.metadata.get("CCS") is None
+            ):
+                psm.metadata["CCS"] = str(
+                    im2ccs(
+                        psm.ion_mobility,
+                        psm.peptidoform.theoretical_mz,
+                        psm.peptidoform.precursor_charge,
+                    )
                 )
             # Ensure CCS is always stored as float
             elif psm.metadata.get("CCS") is not None:
@@ -502,7 +514,7 @@ def setup_logging(passed_level: str) -> None:
 
     if passed_level.lower() not in log_mapping:
         raise ValueError(
-            f"Invalid log level: {passed_level}. " f"Should be one of {list(log_mapping.keys())}"
+            f"Invalid log level: {passed_level}. Should be one of {list(log_mapping.keys())}"
         )
 
     # Get the root logger and set its level
@@ -568,8 +580,8 @@ def write_output(
         if ion_mobility:
             im_value = ccs2im(
                 predictions[idx],
-                psm.peptidoform.theoretical_mz,
-                psm.peptidoform.precursor_charge,
+                psm.peptidoform.theoretical_mz,  # type: ignore -  already checked charge present
+                psm.peptidoform.precursor_charge,  # type: ignore -  already checked charge present
             )
             entry["predicted_ion_mobility"] = im_value
         output_data.append(entry)

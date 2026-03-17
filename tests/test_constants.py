@@ -11,7 +11,7 @@ class TestConstants:
         from im2deep.constants import DEFAULT_MODEL
 
         if DEFAULT_MODEL is not None:
-            model_path = Path(DEFAULT_MODEL)
+            model_path = Path(DEFAULT_MODEL)  # noqa: F841
             # Check if path is valid (may not exist in test environment)
             assert isinstance(DEFAULT_MODEL, (str, Path))
 
@@ -20,7 +20,7 @@ class TestConstants:
         from im2deep.constants import DEFAULT_MULTI_MODEL
 
         if DEFAULT_MULTI_MODEL is not None:
-            model_path = Path(DEFAULT_MULTI_MODEL)
+            model_path = Path(DEFAULT_MULTI_MODEL)  # noqa: F841
             assert isinstance(DEFAULT_MULTI_MODEL, (str, Path))
 
     def test_default_reference_dataset_path_exists(self):
@@ -28,7 +28,7 @@ class TestConstants:
         from im2deep.constants import DEFAULT_REFERENCE_DATASET_PATH
 
         if DEFAULT_REFERENCE_DATASET_PATH is not None:
-            dataset_path = Path(DEFAULT_REFERENCE_DATASET_PATH)
+            dataset_path = Path(DEFAULT_REFERENCE_DATASET_PATH)  # noqa: F841
             assert isinstance(DEFAULT_REFERENCE_DATASET_PATH, (str, Path))
 
     def test_default_multi_reference_dataset_path_exists(self):
@@ -36,7 +36,7 @@ class TestConstants:
         from im2deep.constants import DEFAULT_MULTI_REFERENCE_DATASET_PATH
 
         if DEFAULT_MULTI_REFERENCE_DATASET_PATH is not None:
-            dataset_path = Path(DEFAULT_MULTI_REFERENCE_DATASET_PATH)
+            dataset_path = Path(DEFAULT_MULTI_REFERENCE_DATASET_PATH)  # noqa: F841
             assert isinstance(DEFAULT_MULTI_REFERENCE_DATASET_PATH, (str, Path))
 
     def test_default_config_exists(self):
@@ -66,7 +66,7 @@ class TestConstants:
         from im2deep import constants
 
         # Store original values
-        original_model = constants.DEFAULT_MODEL
+        original_model = constants.DEFAULT_MODEL  # noqa: F841
 
         # Try to modify (this is just checking the pattern, not enforcement)
         # In Python, constants are by convention, not enforced

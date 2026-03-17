@@ -1,6 +1,5 @@
 """Pytest configuration and fixtures for IM2Deep tests."""
 
-
 import numpy as np
 import pandas as pd
 import pytest

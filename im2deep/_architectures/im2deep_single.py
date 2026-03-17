@@ -489,7 +489,7 @@ class IM2DeepTransfer(L.LightningModule):
         self.ConvGlobal = self.backbone.ConvGlobal
         self.OneHot = self.backbone.OneHot
 
-        if self.config.get("add_X_mol", False) == True:
+        if bool(self.config.get("add_X_mol", False)):
             self.MolDesc = self.backbone.MolDesc
 
         self.concat = self.backbone.Concat

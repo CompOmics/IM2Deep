@@ -1,6 +1,5 @@
 """Tests for utils module."""
 
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -196,18 +195,18 @@ class TestCCSConversions:
     def test_ccs2im_zero_values(self):
         """Test handling of zero values."""
         with pytest.raises((ValueError, ZeroDivisionError)):
-            ccs2im(0, 2, 500.0)
+            ccs2im(0, 2, 500)
 
     def test_im2ccs_zero_values(self):
         """Test handling of zero values."""
         with pytest.raises((ValueError, ZeroDivisionError)):
-            im2ccs(0, 2, 500.0)
+            im2ccs(0, 2, 500)
 
     def test_ccs2im_negative_values(self):
         """Test handling of negative values."""
         # Function should raise ValueError for negative CCS values
         with pytest.raises(ValueError, match="CCS must be positive"):
-            ccs2im(-450.0, 2, 500.0)
+            ccs2im(-450.0, 2, 500)
 
     def test_im2ccs_different_charges(self):
         """Test conversions with different charge states."""

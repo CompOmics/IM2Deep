@@ -22,15 +22,15 @@ Example:
 
 """
 
-__version__ = "2.0.0-beta"
-
-# Import main functionality for easier access
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
 from im2deep.core import predict, predict_and_calibrate
 from im2deep.utils import ccs2im, im2ccs
 
-__version__: str = version("im2deep")
+try:
+    __version__: str = version("im2deep")
+except PackageNotFoundError:
+    __version__ = "2.0.0-beta"  # Single source of truth for version
 __all__ = [
     "predict",
     "predict_and_calibrate",
