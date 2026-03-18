@@ -170,7 +170,9 @@ class TestPredictLoop:
 
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
-                model=model, data_loader=mock_data, device="cpu"  # type: ignore
+                model=model,
+                data_loader=mock_data,
+                device="cpu",  # type: ignore
             )
 
             assert isinstance(predictions, torch.Tensor)
@@ -191,7 +193,9 @@ class TestPredictLoop:
 
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
-                model=model, data_loader=mock_data, device="cpu"  # type: ignore
+                model=model,
+                data_loader=mock_data,
+                device="cpu",  # type: ignore
             )
 
             assert isinstance(predictions, torch.Tensor)
@@ -212,7 +216,9 @@ class TestPredictLoop:
         # Mock track to return our mock data
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
-                model=model, data_loader=mock_data, device="cpu"  # type: ignore
+                model=model,
+                data_loader=mock_data,
+                device="cpu",  # type: ignore
             )
 
             assert not predictions.requires_grad
