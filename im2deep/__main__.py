@@ -215,13 +215,13 @@ def _run_predict(*args, **kwargs):
 
     # Parse input files
     LOGGER.info("Parsing input files...")
-    psm_list = parse_input(kwargs.get("precursors"))
+    psm_list = parse_input(Path(kwargs.get("precursors")))  # type: ignore[invalid-arg]
 
     # Run prediction
     LOGGER.info("Running CCS prediction...")
     if kwargs.get("calibration_precursors"):
         LOGGER.info("Calibration file provided, performing calibration and prediction...")
-        psm_list_cal = parse_input(kwargs.get("calibration_precursors"))
+        psm_list_cal = parse_input(Path(kwargs.get("calibration_precursors")))  # type: ignore[invalid-arg]
         predictions = core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
     else:
         LOGGER.info(

@@ -58,7 +58,7 @@ def predict_and_calibrate(
     psm_list_cal: PSMList,
     psm_list_reference: PSMList | None = None,
     model: torch.nn.Module | PathLike | str | None = None,
-    calibration: Calibration | None = None,
+    calibration: LinearCCSCalibration | None = None,
     multi: bool = False,
     predict_kwargs: dict | None = None,
     **kwargs,
@@ -128,6 +128,11 @@ def predict_and_calibrate(
         )
 
     if not calibration.is_fitted:
+        if psm_df_reference is None:
+            raise ValueError(
+                "Reference PSM list must be provided for calibration fitting when using a custom" \
+                "calibration object."
+            )
         LOGGER.info("Fitting calibration...")
         if any(psm_list_cal["is_decoy"]):
             LOGGER.warning(

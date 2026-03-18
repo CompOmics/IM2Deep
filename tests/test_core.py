@@ -74,7 +74,7 @@ class TestPredict:
     def test_predict_invalid_psm_list(self):
         """Test prediction with invalid PSMList."""
         with pytest.raises(IM2DeepError):
-            core.predict([1, 2, 3])
+            core.predict([1, 2, 3])  # type: ignore[invalid-arg]
 
 
 class TestPredictAndCalibrate:
@@ -171,7 +171,7 @@ class TestPredictAndCalibrate:
         predictions = core.predict_and_calibrate(
             psm_list=sample_psm_list,
             psm_list_cal=sample_psm_list_with_ccs,
-            calibration=custom_calibration,
+            calibration=custom_calibration,  # type: ignore[invalid-arg]
         )
 
         assert isinstance(predictions, np.ndarray)

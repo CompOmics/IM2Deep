@@ -171,8 +171,8 @@ class TestPredictLoop:
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
                 model=model,
-                data_loader=mock_data,
-                device="cpu",  # type: ignore
+                data_loader=mock_data,  # type: ignore[unknown-arg]
+                device="cpu",
             )
 
             assert isinstance(predictions, torch.Tensor)
@@ -194,8 +194,8 @@ class TestPredictLoop:
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
                 model=model,
-                data_loader=mock_data,
-                device="cpu",  # type: ignore
+                data_loader=mock_data,  # type: ignore[unknown-arg]
+                device="cpu",
             )
 
             assert isinstance(predictions, torch.Tensor)
@@ -217,8 +217,8 @@ class TestPredictLoop:
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
                 model=model,
-                data_loader=mock_data,
-                device="cpu",  # type: ignore
+                data_loader=mock_data,  # type: ignore[unknown-arg]
+                device="cpu",
             )
 
             assert not predictions.requires_grad
@@ -262,7 +262,7 @@ class TestGetLossFunction:
     def test_get_loss_function_single(self):
         """Test getting single-output loss function."""
         loss = _model_ops._get_loss_function(multi=False)
-        assert isinstance(loss, torch.nn.modules.loss._Loss)
+        assert isinstance(loss, torch.nn.modules.loss._Loss)  # type: ignore[unresolved-attr]
 
     @patch("im2deep._model_ops.FlexibleLossSorted")
     def test_get_loss_function_multi(self, mock_loss):

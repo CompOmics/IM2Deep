@@ -196,7 +196,7 @@ class TestSetupLogging:
         """Test setup_logging with info level."""
         import logging
 
-        from im2deep.utils import setup_logging
+        from im2deep._io_helpers import setup_logging
 
         setup_logging("info")
 
@@ -207,7 +207,7 @@ class TestSetupLogging:
         """Test setup_logging with debug level."""
         import logging
 
-        from im2deep.utils import setup_logging
+        from im2deep._io_helpers import setup_logging
 
         setup_logging("debug")
 
@@ -218,7 +218,7 @@ class TestSetupLogging:
         """Test setup_logging with warning level."""
         import logging
 
-        from im2deep.utils import setup_logging
+        from im2deep._io_helpers import setup_logging
 
         setup_logging("warning")
 
@@ -229,7 +229,7 @@ class TestSetupLogging:
         """Test that setup_logging affects all im2deep submodules."""
         import logging
 
-        from im2deep.utils import setup_logging
+        from im2deep._io_helpers import setup_logging
 
         setup_logging("debug")
 
@@ -245,6 +245,6 @@ class TestDefaultCommandGroup:
         """Test that DefaultCommandGroup can be imported."""
         import click
 
-        from im2deep.utils import DefaultCommandGroup
+        from im2deep._io_helpers import DefaultCommandGroup
 
         assert issubclass(DefaultCommandGroup, click.Group)
