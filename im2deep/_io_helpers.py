@@ -210,7 +210,6 @@ def _parse_legacy_format(input_file: str | Path) -> PSMList:
             if has_ccs:
                 metadata = {"CCS": _normalize_ccs_metadata_value(row["CCS"])}
 
-            LOGGER.debug(f"Parsed PSM: {peptidoform} with metadata: {metadata}")
             precursor = PSM(peptidoform=peptidoform, metadata=metadata, spectrum_id=idx)
             list_of_precursors.append(precursor)
         except Exception as e:
@@ -402,20 +401,40 @@ def write_output(
     ion_mobility : bool, optional
         Whether to include ion mobility in the output. Default is False.
     """
+    is_multi = len(predictions) > 0 and isinstance(predictions[0], np.ndarray)
     output_data = []
     for idx, psm in enumerate(psm_list):
-        entry = {
-            "index": psm.spectrum_id,
-            "peptidoform": str(psm.peptidoform),
-            "predicted_CCS": predictions[idx],
-        }
-        if ion_mobility:
-            im_value = ccs2im(
-                predictions[idx],
-                psm.peptidoform.theoretical_mz,  # type: ignore -  already checked charge present
-                psm.peptidoform.precursor_charge,  # type: ignore -  already checked charge present
-            )
-            entry["predicted_ion_mobility"] = im_value
+        if is_multi:
+            ccs_low, ccs_high = sorted(predictions[idx])
+            entry = {
+                "index": psm.spectrum_id,
+                "peptidoform": str(psm.peptidoform),
+                "predicted_ccs_low": ccs_low,
+                "predicted_ccs_high": ccs_high,
+            }
+            if ion_mobility:
+                entry["predicted_ion_mobility_low"] = ccs2im(
+                    ccs_low,
+                    psm.peptidoform.theoretical_mz,  # type: ignore -  already checked charge present
+                    psm.peptidoform.precursor_charge,  # type: ignore -  already checked charge present
+                )
+                entry["predicted_ion_mobility_high"] = ccs2im(
+                    ccs_high,
+                    psm.peptidoform.theoretical_mz,  # type: ignore -  already checked charge present
+                    psm.peptidoform.precursor_charge,  # type: ignore -  already checked charge present
+                )
+        else:
+            entry = {
+                "index": psm.spectrum_id,
+                "peptidoform": str(psm.peptidoform),
+                "predicted_CCS": predictions[idx],
+            }
+            if ion_mobility:
+                entry["predicted_ion_mobility"] = ccs2im(
+                    predictions[idx],
+                    psm.peptidoform.theoretical_mz,  # type: ignore -  already checked charge present
+                    psm.peptidoform.precursor_charge,  # type: ignore -  already checked charge present
+                )
         output_data.append(entry)
 
     output_df = pd.DataFrame(output_data)

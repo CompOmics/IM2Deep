@@ -440,6 +440,10 @@ class LinearCCSCalibration(Calibration):
             target_work["CCS"] = target_work["metadata"].apply(
                 lambda x: float(x["CCS"]) if isinstance(x, dict) and "CCS" in x else np.nan
             )
+        if "CCS" not in source_work.columns and "metadata" in source_work.columns:
+            source_work["CCS"] = source_work["metadata"].apply(
+                lambda x: float(x["CCS"]) if isinstance(x, dict) and "CCS" in x else np.nan
+            )
 
         source_work["peptide_key"] = source_work["peptidoform"].apply(get_peptide_key)
         source_work["charge"] = source_work["peptidoform"].apply(get_charge)
