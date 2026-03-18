@@ -130,7 +130,7 @@ def predict_and_calibrate(
     if not calibration.is_fitted:
         if psm_df_reference is None:
             raise ValueError(
-                "Reference PSM list must be provided for calibration fitting when using a custom" \
+                "Reference PSM list must be provided for calibration fitting when using a custom "
                 "calibration object."
             )
         LOGGER.info("Fitting calibration...")
