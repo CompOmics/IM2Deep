@@ -8,6 +8,8 @@ Classes
 -------
 IM2DeepError
     Base exception class for all IM2Deep-related errors.
+PSMMetadataError
+    Exception raised when PSM metadata has an invalid type or value.
 CalibrationError
     Exception raised when calibration-related errors occur.
 """
@@ -31,6 +33,17 @@ class IM2DeepError(Exception):
     ...     predict_ccs(invalid_data)
     ... except IM2DeepError as exc:
     ...     print(f"IM2Deep error occurred: {exc}")
+    """
+
+    pass
+
+
+class PSMMetadataError(IM2DeepError, ValueError):
+    """
+    Exception raised when PSM metadata violates IM2Deep expectations.
+
+    This is used when metadata is structurally present but contains invalid
+    values for fields that IM2Deep needs to parse, such as non-numeric CCS.
     """
 
     pass

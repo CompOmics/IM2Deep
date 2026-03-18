@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import click
 import numpy as np
@@ -28,12 +29,24 @@ from psm_utils.psm_list import PSMList
 from rich.console import Console
 from rich.logging import RichHandler
 
-from im2deep.exceptions import IM2DeepError
+from im2deep.exceptions import IM2DeepError, PSMMetadataError
 from im2deep.utils import ccs2im, im2ccs
 
 console = Console()
 
 LOGGER = logging.getLogger(__name__)
+
+ConvertibleToFloat = str | float | int | np.floating[Any] | np.ndarray[Any, Any]
+
+
+def _normalize_ccs_metadata_value(value: ConvertibleToFloat) -> str:
+    """Validate and normalize a CCS metadata value to the canonical string form."""
+    try:
+        return str(float(value))
+    except (TypeError, ValueError) as exc:
+        raise PSMMetadataError(
+            f"Invalid CCS metadata value {value!r}; expected a numeric string or number."
+        ) from exc
 
 
 def parse_input(
@@ -86,7 +99,7 @@ def parse_input(
                 if "CCS" in row:
                     if precursor.metadata is None:
                         precursor.metadata = {}
-                    precursor.metadata["CCS"] = float(row["CCS"])  # type: ignore
+                    precursor.metadata["CCS"] = _normalize_ccs_metadata_value(row["CCS"])  # type: ignore
                 list_of_precursors.append(precursor)
             except Exception as e:
                 LOGGER.warning("Error parsing row %d: %s. Skipping.", idx, e)
@@ -195,7 +208,7 @@ def _parse_legacy_format(input_file: str | Path) -> PSMList:
                 charge=int(row["charge"]),
             )
             if has_ccs:
-                metadata = {"CCS": float(row["CCS"])}
+                metadata = {"CCS": _normalize_ccs_metadata_value(row["CCS"])}
 
             LOGGER.debug(f"Parsed PSM: {peptidoform} with metadata: {metadata}")
             precursor = PSM(peptidoform=peptidoform, metadata=metadata, spectrum_id=idx)
@@ -263,19 +276,22 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
         )
 
         # TODO: Could be vectorized over all ion mobility values
-        # If ion_mobility is present, convert to CCS
+        # Normalize targets while preserving the PSM metadata str -> str contract.
         for psm in psm_list_filtered:
+            if psm.metadata is None:
+                psm.metadata = {}
+
             if psm.ion_mobility is not None:
-                if psm.metadata is None:
-                    psm.metadata = {}
                 if "CCS" not in psm.metadata:
-                    psm.metadata["CCS"] = str(
+                    psm.metadata["CCS"] = _normalize_ccs_metadata_value(
                         im2ccs(
                             psm.ion_mobility,
                             psm.peptidoform.theoretical_mz,
                             psm.peptidoform.precursor_charge,
                         )
                     )
+            elif psm.metadata.get("CCS") is not None:
+                psm.metadata["CCS"] = _normalize_ccs_metadata_value(psm.metadata["CCS"])
 
     if needs_target and not all_has_targets:
         raise IM2DeepError("PSMList must contain 'ion_mobility' or 'CCS' metadata for all PSMs.")

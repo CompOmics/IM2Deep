@@ -6,7 +6,7 @@ import pytest
 from psm_utils import PSMList
 
 from im2deep._io_helpers import parse_input, validate_psm_list
-from im2deep.exceptions import IM2DeepError
+from im2deep.exceptions import IM2DeepError, PSMMetadataError
 from im2deep.utils import ccs2im, im2ccs
 
 
@@ -26,13 +26,21 @@ class TestValidatePSMList:
         for psm in result:
             assert psm.metadata is not None
             assert "CCS" in psm.metadata
-            # CCS should always be stored as float
-            assert isinstance(psm.metadata["CCS"], float)
+            # PSM metadata is string-valued; CCS should be normalized to a numeric string.
+            assert isinstance(psm.metadata["CCS"], str)
+            float(psm.metadata["CCS"])
 
     def test_validate_psm_list_missing_ccs(self, sample_psm_list):
         """Test validation fails when CCS values are required but missing."""
         with pytest.raises(IM2DeepError, match="ion_mobility.*CCS.*metadata"):
             validate_psm_list(sample_psm_list, needs_target=True)
+
+    def test_validate_psm_list_invalid_ccs_value(self, sample_psm_list_with_ccs):
+        """Test validation fails with a custom metadata error for invalid CCS values."""
+        sample_psm_list_with_ccs[0].metadata["CCS"] = "not-a-number"  # type: ignore[index]
+
+        with pytest.raises(PSMMetadataError, match="Invalid CCS metadata value"):
+            validate_psm_list(sample_psm_list_with_ccs, needs_target=True)
 
     def test_validate_psm_list_empty(self):
         """Test validation with empty PSMList."""

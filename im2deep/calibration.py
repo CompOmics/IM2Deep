@@ -332,7 +332,7 @@ class LinearCCSCalibration(Calibration):
         # Extract CCS from metadata if it's not a direct column
         if "CCS" not in target_work.columns and "metadata" in target_work.columns:
             target_work["CCS"] = target_work["metadata"].apply(
-                lambda x: x.get("CCS", np.nan) if isinstance(x, dict) else np.nan
+                lambda x: float(x.get("CCS")) if isinstance(x, dict) and x.get("CCS") is not None else np.nan
             )
 
         source_work["peptide_key"] = source_work["peptidoform"].apply(get_peptide_key)
@@ -434,7 +434,7 @@ class LinearCCSCalibration(Calibration):
 
         if "CCS" not in target_work.columns and "metadata" in target_work.columns:
             target_work["CCS"] = target_work["metadata"].apply(
-                lambda x: x["CCS"] if "CCS" in x else np.nan
+                lambda x: float(x["CCS"]) if isinstance(x, dict) and "CCS" in x else np.nan
             )
 
         source_work["peptide_key"] = source_work["peptidoform"].apply(get_peptide_key)
