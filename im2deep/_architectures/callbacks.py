@@ -1,6 +1,6 @@
 """Architecture callbacks."""
 
-import pytorch_lightning as L
+import lightning as L
 
 try:
     import wandb  # type: ignore[import]

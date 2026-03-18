@@ -13,7 +13,7 @@ from psm_utils.psm_list import PSMList
 from im2deep import _model_ops
 from im2deep.calibration import Calibration, LinearCCSCalibration
 from im2deep.constants import DEFAULT_MODEL, DEFAULT_MULTI_MODEL
-from im2deep.utils import validate_psm_list
+from im2deep._io_helpers import validate_psm_list
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def predict(
     LOGGER.info("Predicting CCS values using IM2Deep.")
     psm_list = validate_psm_list(psm_list)
     return _model_ops.predict(
-        model=model or DEFAULT_MODEL if not multi else DEFAULT_MULTI_MODEL,
+        model=model or (DEFAULT_MODEL if not multi else DEFAULT_MULTI_MODEL),
         data=DeepLCDataset.from_psm_list(psm_list, add_ccs_features=True),
         multi=multi,
         **(predict_kwargs or {}),
@@ -99,6 +99,8 @@ def predict_and_calibrate(
 
     # Assign the predicted CCS to the PSM metadata
     for idx, psm in enumerate(psm_list):
+        if psm.metadata is None:
+            psm.metadata = {}
         psm.metadata["predicted_CCS_uncalibrated"] = predicted_ccs[idx]
 
     psm_df = psm_list.to_dataframe()
