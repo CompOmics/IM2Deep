@@ -239,8 +239,7 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     # Filter missing and high charge states (IM2Deep predictions are not reliable for charges >6)
     original_size = len(psm_list)
     charges = np.array([psm.peptidoform.precursor_charge for psm in psm_list])
-    psm_list_filtered = psm_list[charges != None]  # noqa: E711
-    psm_list_filtered = psm_list_filtered[charges <= 6]
+    psm_list_filtered = psm_list[(charges != None) & (charges <= 6)]  # noqa: E711
 
     # TODO: Is deepcopy really necessary or can it be avoided?
     psm_list_filtered = deepcopy(psm_list_filtered)
@@ -263,25 +262,20 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
             for psm in psm_list_filtered
         )
 
+        # TODO: Could be vectorized over all ion mobility values
         # If ion_mobility is present, convert to CCS
         for psm in psm_list_filtered:
-            if (
-                psm.ion_mobility is not None
-                and psm.metadata is not None
-                and psm.metadata.get("CCS") is None
-            ):
-                psm.metadata["CCS"] = str(
-                    im2ccs(
-                        psm.ion_mobility,
-                        psm.peptidoform.theoretical_mz,
-                        psm.peptidoform.precursor_charge,
+            if psm.ion_mobility is not None:
+                if psm.metadata is None:
+                    psm.metadata = {}
+                if "CCS" not in psm.metadata:
+                    psm.metadata["CCS"] = str(
+                        im2ccs(
+                            psm.ion_mobility,
+                            psm.peptidoform.theoretical_mz,
+                            psm.peptidoform.precursor_charge,
+                        )
                     )
-                )
-            # Ensure CCS is always stored as float
-            elif psm.metadata.get("CCS") is not None:
-                ccs_value = psm.metadata["CCS"]
-                if not isinstance(ccs_value, float):
-                    psm.metadata["CCS"] = float(ccs_value)
 
     if needs_target and not all_has_targets:
         raise IM2DeepError("PSMList must contain 'ion_mobility' or 'CCS' metadata for all PSMs.")

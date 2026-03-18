@@ -20,7 +20,8 @@ class TestLoadModel:
         loaded_model = _model_ops.load_model(temp_model_path)
 
         assert isinstance(loaded_model, torch.nn.Module)
-        assert loaded_model.training is False  # Should be in eval mode by default
+        # load_model does not force eval mode; caller controls train/eval state.
+        assert loaded_model.training is model.training
 
     def test_load_model_from_module(self):
         """Test loading model from existing module."""
@@ -38,7 +39,7 @@ class TestLoadModel:
     def test_load_model_invalid_type(self):
         """Test loading model with invalid type raises TypeError."""
         with pytest.raises(TypeError):
-            _model_ops.load_model(12345)
+            _model_ops.load_model(12345)  # type: ignore
 
     def test_load_model_dict_checkpoint(self, temp_model_path):
         """Test loading model from dict checkpoint."""
@@ -169,7 +170,7 @@ class TestPredictLoop:
 
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
-                model=model, data_loader=mock_data, device="cpu"
+                model=model, data_loader=mock_data, device="cpu"  # type: ignore
             )
 
             assert isinstance(predictions, torch.Tensor)
@@ -190,7 +191,7 @@ class TestPredictLoop:
 
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
-                model=model, data_loader=mock_data, device="cpu"
+                model=model, data_loader=mock_data, device="cpu"  # type: ignore
             )
 
             assert isinstance(predictions, torch.Tensor)
@@ -211,7 +212,7 @@ class TestPredictLoop:
         # Mock track to return our mock data
         with patch("im2deep._model_ops.track", return_value=mock_data):
             predictions = _model_ops._predict_loop(
-                model=model, data_loader=mock_data, device="cpu"
+                model=model, data_loader=mock_data, device="cpu"  # type: ignore
             )
 
             assert not predictions.requires_grad
@@ -220,14 +221,14 @@ class TestPredictLoop:
 class TestGetArchitecture:
     """Tests for _get_architecture function."""
 
-    @patch("im2deep._architecture.IM2Deep")
+    @patch("im2deep._model_ops.IM2Deep")
     def test_get_architecture_single(self, mock_im2deep):
         """Test getting single-output architecture."""
         arch = _model_ops._get_architecture(multi=False)
         # Should import IM2Deep
         assert arch is mock_im2deep
 
-    @patch("im2deep._architecture.IM2DeepMultiTransfer")
+    @patch("im2deep._model_ops.IM2DeepMultiTransfer")
     def test_get_architecture_multi(self, mock_multi):
         """Test getting multi-output architecture."""
         arch = _model_ops._get_architecture(multi=True)
@@ -257,7 +258,7 @@ class TestGetLossFunction:
         loss = _model_ops._get_loss_function(multi=False)
         assert isinstance(loss, torch.nn.modules.loss._Loss)
 
-    @patch("im2deep._architecture.FlexibleLossSorted")
+    @patch("im2deep._model_ops.FlexibleLossSorted")
     def test_get_loss_function_multi(self, mock_loss):
         """Test getting multi-output loss function."""
         mock_instance = MagicMock()

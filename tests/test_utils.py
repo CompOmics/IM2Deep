@@ -5,13 +5,9 @@ import pandas as pd
 import pytest
 from psm_utils import PSMList
 
+from im2deep._io_helpers import parse_input, validate_psm_list
 from im2deep.exceptions import IM2DeepError
-from im2deep.utils import (
-    ccs2im,
-    im2ccs,
-    parse_input,
-    validate_psm_list,
-)
+from im2deep.utils import ccs2im, im2ccs
 
 
 class TestValidatePSMList:
@@ -28,6 +24,7 @@ class TestValidatePSMList:
         result = validate_psm_list(sample_psm_list_with_ccs, needs_target=True)
         assert isinstance(result, PSMList)
         for psm in result:
+            assert psm.metadata is not None
             assert "CCS" in psm.metadata
             # CCS should always be stored as float
             assert isinstance(psm.metadata["CCS"], float)
@@ -46,7 +43,7 @@ class TestValidatePSMList:
     def test_validate_psm_list_not_psm_list(self):
         """Test validation fails with non-PSMList input."""
         with pytest.raises(IM2DeepError, match="PSMList"):
-            validate_psm_list([1, 2, 3])
+            validate_psm_list([1, 2, 3])  # type: ignore
 
 
 class TestParseInput:
@@ -131,6 +128,7 @@ class TestParseInput:
         assert len(result) == 2
         # Check that CCS values are preserved in metadata
         for psm in result:
+            assert psm.metadata is not None
             assert "CCS" in psm.metadata
 
 
@@ -142,7 +140,7 @@ class TestCCSConversions:
         ccs = 450.0
         charge = 2
         mz = 500.0
-        im = ccs2im(ccs, charge, mz)
+        im = ccs2im(ccs, mz, charge)
 
         assert isinstance(im, float)
         assert im > 0
@@ -153,7 +151,7 @@ class TestCCSConversions:
         charge = np.array([2, 3, 2])
         mz = np.array([500.0, 600.0, 550.0])
 
-        im = ccs2im(ccs, charge, mz)
+        im = ccs2im(ccs, mz, charge)
 
         assert isinstance(im, np.ndarray)
         assert len(im) == len(ccs)
@@ -164,7 +162,7 @@ class TestCCSConversions:
         im = 1.0
         charge = 2
         mz = 500.0
-        ccs = im2ccs(im, charge, mz)
+        ccs = im2ccs(im, mz, charge)
 
         assert isinstance(ccs, float)
         assert ccs > 0
@@ -175,7 +173,7 @@ class TestCCSConversions:
         charge = np.array([2, 3, 2])
         mz = np.array([500.0, 600.0, 550.0])
 
-        ccs = im2ccs(im, charge, mz)
+        ccs = im2ccs(im, mz, charge)
 
         assert isinstance(ccs, np.ndarray)
         assert len(ccs) == len(im)
@@ -187,34 +185,34 @@ class TestCCSConversions:
         charge = 2
         mz = 500.0
 
-        im = ccs2im(ccs_original, charge, mz)
-        ccs_roundtrip = im2ccs(im, charge, mz)
+        im = ccs2im(ccs_original, mz, charge)
+        ccs_roundtrip = im2ccs(im, mz, charge)
 
         assert abs(ccs_roundtrip - ccs_original) < 0.01
 
     def test_ccs2im_zero_values(self):
         """Test handling of zero values."""
         with pytest.raises((ValueError, ZeroDivisionError)):
-            ccs2im(0, 2, 500)
+            ccs2im(0, 500, 2)
 
     def test_im2ccs_zero_values(self):
         """Test handling of zero values."""
         with pytest.raises((ValueError, ZeroDivisionError)):
-            im2ccs(0, 2, 500)
+            im2ccs(0, 500, 2)
 
     def test_ccs2im_negative_values(self):
         """Test handling of negative values."""
         # Function should raise ValueError for negative CCS values
         with pytest.raises(ValueError, match="CCS must be positive"):
-            ccs2im(-450.0, 2, 500)
+            ccs2im(-450.0, 500, 2)
 
     def test_im2ccs_different_charges(self):
         """Test conversions with different charge states."""
         im = 1.0
         mz = 500
 
-        ccs_z2 = im2ccs(im, 2, mz)
-        ccs_z3 = im2ccs(im, 3, mz)
+        ccs_z2 = im2ccs(im, mz, 2)
+        ccs_z3 = im2ccs(im, mz, 3)
 
         assert ccs_z2 != ccs_z3
         assert ccs_z2 > 0 and ccs_z3 > 0

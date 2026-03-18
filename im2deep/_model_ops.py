@@ -130,6 +130,7 @@ def predict(
         config=_get_model_config(multi=multi),
         criterion=_get_loss_function(multi=multi),
     )
+    model.to(device)
     model.eval()
     LOGGER.debug(f"Model loaded on device: {device}")
 
