@@ -61,6 +61,10 @@ im2deep = "im2deep.__main__:main"
 requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = "im2deep"
+module-root = ""
+
 [tool.isort]
 profile = "black"
 line_length = 99
