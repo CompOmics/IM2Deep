@@ -13,23 +13,30 @@ Constants:
     MULTI_BACKBONE_PATH: Path to the multi-conformer model backbone
 """
 
-from pathlib import Path
-from typing import Union, Any, Dict
+from __future__ import annotations
+
+import logging
+
 import numpy as np
 
-MULTI_BACKBONE_PATH = (
-    Path(__file__).parent / "models" / "TIMS_multi" / "multi_output_backbone.ckpt"
+from im2deep.constants import (
+    MASS_GAS_N2,
+    SUMMARY_CONSTANT,
+    T_DIFF,
+    TEMP,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 def im2ccs(
-    reverse_im: Union[float, np.ndarray],
-    mz: Union[float, np.ndarray],
-    charge: Union[int, np.ndarray],
-    mass_gas: float = 28.013,
-    temp: float = 31.85,
-    t_diff: float = 273.15,
-) -> Union[float, np.ndarray]:
+    reverse_im: float | np.ndarray,
+    mz: float | np.ndarray,
+    charge: int | np.ndarray,
+    mass_gas: float = MASS_GAS_N2,
+    temp: float = TEMP,
+    t_diff: float = T_DIFF,
+) -> float | np.ndarray:
     """
     Convert reduced ion mobility to collisional cross section.
 
@@ -97,19 +104,18 @@ def im2ccs(
     if temp <= -t_diff:
         raise ValueError("Temperature must be above absolute zero")
 
-    SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return (SUMMARY_CONSTANT * charge) / (np.sqrt(reduced_mass * (temp + t_diff)) * 1 / reverse_im)
 
 
 def ccs2im(
-    ccs: Union[float, np.ndarray],
-    mz: Union[float, np.ndarray],
-    charge: Union[int, np.ndarray],
-    mass_gas: float = 28.013,
-    temp: float = 31.85,
-    t_diff: float = 273.15,
-) -> Union[float, np.ndarray]:
+    ccs: float | np.ndarray,
+    mz: float | np.ndarray,
+    charge: int | np.ndarray,
+    mass_gas: float = MASS_GAS_N2,
+    temp: float = TEMP,
+    t_diff: float = T_DIFF,
+) -> float | np.ndarray:
     """
     Convert collisional cross section to reduced ion mobility.
 
@@ -175,34 +181,5 @@ def ccs2im(
     if temp <= -t_diff:
         raise ValueError("Temperature must be above absolute zero")
 
-    SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return ((np.sqrt(reduced_mass * (temp + t_diff))) * ccs) / (SUMMARY_CONSTANT * charge)
-
-
-# Configuration for multi-conformer model
-multi_config: Dict[str, Any] = {
-    "model_name": "IM2DeepMulti",
-    "batch_size": 16,
-    "learning_rate": 0.0001,
-    "AtomComp_kernel_size": 4,
-    "DiatomComp_kernel_size": 2,
-    "One_hot_kernel_size": 2,
-    "AtomComp_out_channels_start": 256,
-    "DiatomComp_out_channels_start": 128,
-    "Global_units": 16,
-    "OneHot_out_channels": 2,
-    "Concat_units": 128,
-    "AtomComp_MaxPool_kernel_size": 2,
-    "DiatomComp_MaxPool_kernel_size": 2,
-    "Mol_MaxPool_kernel_size": 2,
-    "OneHot_MaxPool_kernel_size": 10,
-    "LRelu_negative_slope": 0.1,
-    "LRelu_saturation": 20,
-    "L1_alpha": 0.00001,
-    "delta": 0,
-    "device": 0,
-    "add_X_mol": False,
-    "init": "normal",
-    "backbone_SD_path": MULTI_BACKBONE_PATH,
-}

@@ -1,5 +1,6 @@
 [project]
 name = "im2deep"
+version = "2.0.0-alpha.1"
 description = "Framework for prediction of collisional cross-section of peptides."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -16,26 +17,26 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-dynamic = ["version"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "click",
-    "deeplc<4",
+    "deeplc==4.0.0a1",
     "psm_utils",
     "pandas",
-    "numpy==1.26.0",
+    "numpy",
     "rich",
+    "torch",
+    "lightning",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "black>=23.0",
-    "isort>=5.12",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
-    "mypy>=1.0",
-    "pre-commit>=3.0"
+    "pre-commit>=3.0",
+    "ty",
+    "ruff",
 ]
 docs = [
     "sphinx>=6.0",
@@ -45,11 +46,8 @@ docs = [
     "toml>=0.10",
     "semver>=2.13",
     "sphinx_rtd_theme>=1.2",
-    "sphinx-autobuild>=2021.3"
+    "sphinx-autobuild>=2021.3",
 ]
-er = [
-    "im2deeptrainer", 
-    "torch==2.3.0"]
 
 [project.urls]
 GitHub = "https://github.com/CompOmics/IM2Deep"
@@ -59,11 +57,12 @@ CompOmics = "https://www.compomics.com"
 im2deep = "im2deep.__main__:main"
 
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
 
-[tool.setuptools.dynamic]
-version = {attr = "im2deep.__version__"}
+[tool.uv.build-backend]
+module-name = "im2deep"
+module-root = ""
 
 [tool.isort]
 profile = "black"
@@ -73,7 +72,7 @@ known_third_party = ["click", "deeplc", "psm_utils", "pandas", "numpy", "rich"]
 
 [tool.black]
 line-length = 99
-target-version = ['py310']
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -105,40 +104,28 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = [
-    "deeplc.*",
-    "torch.*",
-    "im2deeptrainer.*",
-    "psm_utils.*"
-]
+module = ["deeplc.*", "torch.*", "im2deeptrainer.*", "psm_utils.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = [
-    "-ra",
-    "--strict-markers",
-    "--strict-config"
-]
 testpaths = ["tests"]
-filterwarnings = [
-    "error",
-    "ignore::UserWarning",
-    "ignore::DeprecationWarning"
-]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--showlocals"]
 markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests"
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
 ]
 
 [tool.coverage.run]
 source = ["im2deep"]
-omit = [
-    "*/tests/*",
-    "*/test_*",
-    "*/__main__.py"
-]
+omit = ["*/tests/*", "*/test_*", "*/__main__.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -151,12 +138,14 @@ exclude_lines = [
     "if 0:",
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod"
+    "@(abc\\.)?abstractmethod",
 ]
 
 [tool.ruff]
 line-length = 99
-target-version = "py310"
+target-version = "py311"
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -167,7 +156,7 @@ select = [
     "UP", # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long, handled by black
-    "B008",  # do not perform function calls in argument defaults
-    "C901",  # too complex
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
 ]
