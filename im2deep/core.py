@@ -128,7 +128,6 @@ def predict_and_calibrate(
         )
 
     if not calibration.is_fitted:
-        calibration_reference = psm_df_reference if psm_df_reference is not None else psm_df_cal
         LOGGER.info("Fitting calibration...")
         if any(psm_list_cal["is_decoy"]):
             LOGGER.warning(
@@ -137,7 +136,7 @@ def predict_and_calibrate(
             )
         calibration.fit(
             psm_df_cal,
-            calibration_reference,
+            psm_df_reference,  # None is fine; fit() loads the default reference if needed
             multi=multi,
         )
     else:
