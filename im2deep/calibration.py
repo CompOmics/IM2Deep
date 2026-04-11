@@ -488,6 +488,157 @@ class LinearCCSCalibration(Calibration):
         return shift_factors
 
 
+class SplineCCSCalibration(Calibration):
+    """
+    Piecewise spline calibration for CCS predictions.
+
+    Fits a low-dimensional piecewise linear (or cubic) spline to capture
+    non-linear CCS biases that a single global shift cannot correct (e.g.,
+    charge- and mass-dependent drift between MALDI and LC-MS/MS).
+
+    Parameters
+    ----------
+    n_knots : int
+        Number of internal knots for the spline. Default is 3 (giving a
+        4-segment piecewise fit).
+    degree : int
+        Spline degree. 1 = piecewise linear, 3 = cubic. Default is 1.
+    """
+
+    def __init__(self, n_knots: int = 3, degree: int = 1) -> None:
+        super().__init__()
+        self.n_knots = n_knots
+        self.degree = degree
+        self.fitted = False
+        self._spline = None
+
+    @property
+    def is_fitted(self) -> bool:
+        return self.fitted
+
+    def fit(
+        self,
+        psm_df_target: pd.DataFrame,
+        psm_df_source: pd.DataFrame | None = None,
+        multi: bool = False,
+    ) -> None:
+        """
+        Fit a spline mapping predicted (source) CCS to observed (target) CCS.
+
+        Parameters
+        ----------
+        psm_df_target
+            DataFrame with 'peptidoform' and 'CCS' columns (observed values).
+        psm_df_source
+            DataFrame with 'peptidoform' and 'CCS' columns (predicted values).
+            If None, loads the default reference dataset.
+        """
+        from scipy.interpolate import UnivariateSpline
+
+        if psm_df_source is None:
+            psm_df_source = get_default_reference(multi=multi)
+
+        # Find overlapping peptides
+        def get_peptide_key(pf):
+            if isinstance(pf, Peptidoform):
+                return str(pf.proforma).rsplit("/", 1)[0]
+            return str(pf).rsplit("/", 1)[0]
+
+        target_work = psm_df_target.copy()
+        source_work = psm_df_source.copy()
+
+        target_work["peptide_key"] = target_work["peptidoform"].apply(get_peptide_key)
+        source_work["peptide_key"] = source_work["peptidoform"].apply(get_peptide_key)
+
+        merged = pd.merge(
+            target_work[["peptide_key", "CCS"]],
+            source_work[["peptide_key", "CCS"]],
+            on="peptide_key",
+            suffixes=("_target", "_source"),
+        )
+
+        if len(merged) < self.n_knots + self.degree + 1:
+            LOGGER.warning(
+                f"Only {len(merged)} overlapping peptides found, too few for "
+                f"spline with {self.n_knots} knots. Falling back to linear shift."
+            )
+            # Fall back to simple linear shift
+            if len(merged) > 0:
+                shift = (merged["CCS_target"] - merged["CCS_source"]).mean()
+            else:
+                shift = 0.0
+            self._spline = None
+            self._fallback_shift = shift
+            self.fitted = True
+            return
+
+        # Deduplicate by peptide_key (many-to-many merges create duplicates)
+        # and average CCS values per unique peptide for a clean spline fit
+        merged = merged.groupby("peptide_key", as_index=False).agg(
+            CCS_source=("CCS_source", "mean"),
+            CCS_target=("CCS_target", "mean"),
+        )
+
+        # Sort by source CCS (required for spline fitting)
+        merged = merged.sort_values("CCS_source").reset_index(drop=True)
+
+        source_vals = merged["CCS_source"].values.astype(np.float64)
+        target_vals = merged["CCS_target"].values.astype(np.float64)
+
+        # Fit spline: source → target
+        # Use scipy's UnivariateSpline with a generous smoothing factor
+        # to avoid overfitting. Fall back to interp1d if it fails.
+        try:
+            self._spline = UnivariateSpline(
+                source_vals, target_vals,
+                k=min(self.degree, 3),
+                s=len(merged) * np.var(target_vals - source_vals),
+            )
+            # Verify it actually works
+            test_result = self._spline(source_vals[:3])
+            if np.any(np.isnan(test_result)):
+                raise ValueError("Spline produced NaN on training data")
+        except (ValueError, Exception) as e:
+            LOGGER.warning(f"UnivariateSpline failed ({e}), using linear interpolation.")
+            from scipy.interpolate import interp1d
+            self._spline = interp1d(
+                source_vals, target_vals,
+                kind="linear", fill_value="extrapolate",
+            )
+
+        self._fallback_shift = 0.0
+        self.fitted = True
+
+        residuals = merged["CCS_target"] - self._spline(source_vals)
+        LOGGER.info(
+            f"Spline calibration fitted on {len(merged)} peptides. "
+            f"Residual MAE: {np.abs(residuals).mean():.2f} Å²"
+        )
+
+    def transform(self, psm_df: pd.DataFrame) -> np.ndarray:
+        """Transform predicted CCS values using the fitted spline."""
+        if not self.is_fitted:
+            raise CalibrationError("Calibration has not been fitted yet.")
+
+        if "predicted_CCS_uncalibrated" not in psm_df.columns and "metadata" in psm_df.columns:
+            psm_df["predicted_CCS_uncalibrated"] = psm_df["metadata"].apply(
+                lambda x: (
+                    x["predicted_CCS_uncalibrated"]
+                    if "predicted_CCS_uncalibrated" in x
+                    else np.nan
+                )
+            )
+
+        pred_ccs = psm_df["predicted_CCS_uncalibrated"].values
+
+        if self._spline is not None:
+            calibrated = self._spline(pred_ccs)
+        else:
+            calibrated = pred_ccs + self._fallback_shift
+
+        return calibrated.astype(np.float64)
+
+
 def get_default_reference(multi: bool = False) -> pd.DataFrame:
     """
     Get the default reference DataFrame for calibration.

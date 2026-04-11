@@ -176,4 +176,185 @@ def train(
     )
 
 
-# TODO: finetune and finetune_and_predict functions?
+def finetune(
+    psm_list: PSMList,
+    model_save_path: str | PathLike,
+    model: torch.nn.Module | PathLike | str | None = None,
+    epochs: int = 5,
+    learning_rate: float = 1e-4,
+    validation_fraction: float = 0.2,
+    batch_size: int = 64,
+    device: str = "cpu",
+) -> torch.nn.Module:
+    """
+    Finetune IM2Deep on MALDI reference data using transfer learning.
+
+    Loads a pre-trained IM2Deep model and finetunes all layers on the provided
+    MALDI CCS data for a small number of epochs with a low learning rate.
+
+    Parameters
+    ----------
+    psm_list
+        PSMList with observed CCS values (in metadata["CCS"]).
+        Must contain peptides with known CCS from MALDI measurements.
+    model_save_path
+        Path to save the finetuned model checkpoint.
+    model
+        Pre-trained model or path. If None, uses the default IM2DeepUni.ckpt.
+    epochs
+        Number of finetuning epochs. Default is 5.
+    learning_rate
+        Learning rate for finetuning. Default is 1e-4 (10x lower than training).
+    validation_fraction
+        Fraction of data to hold out for validation. Default is 0.2.
+    batch_size
+        Batch size for training. Default is 64.
+    device
+        Device to use ('cpu' or 'cuda'). Default is 'cpu'.
+
+    Returns
+    -------
+    torch.nn.Module
+        The finetuned model.
+    """
+    import lightning as L
+    from deeplc.data import DeepLCDataset
+    from torch.utils.data import DataLoader, random_split
+
+    from im2deep._architectures.im2deep_single import IM2Deep as IM2DeepArch
+    from im2deep.constants import DEFAULT_CONFIG, DEFAULT_MODEL
+
+    LOGGER.info(f"Finetuning IM2Deep on {len(psm_list)} PSMs for {epochs} epochs")
+
+    # Validate input
+    psm_list = validate_psm_list(psm_list, needs_target=True)
+
+    # Prepare dataset — extract CCS targets from PSM metadata
+    ccs_targets = np.array([
+        float(psm.metadata.get("CCS", np.nan)) if psm.metadata else np.nan
+        for psm in psm_list
+    ], dtype=np.float32)
+    if np.any(np.isnan(ccs_targets)):
+        raise ValueError(
+            f"Found {np.sum(np.isnan(ccs_targets))} PSMs without CCS in metadata. "
+            "All PSMs must have metadata['CCS'] set for finetuning."
+        )
+    # DeepLCDataset uses target_retention_times as its target field;
+    # we pass CCS values there for IM2Deep finetuning
+    dataset = DeepLCDataset(
+        peptidoforms=list(psm_list["peptidoform"]),
+        target_retention_times=ccs_targets,
+        add_ccs_features=True,
+    )
+
+    # DeepLCDataset returns (features_tuple, target) where features_tuple is
+    # (atom_comp, diatom_comp, global_feats, one_hot). IM2Deep's training_step
+    # expects a flat batch: atom_comp, diatom_comp, global_feats, one_hot, y.
+    # Use a custom collate_fn to flatten.
+    def _collate_fn(batch):
+        features_list, targets = zip(*batch)
+        stacked_features = [torch.stack([f[i] for f in features_list]) for i in range(len(features_list[0]))]
+        stacked_targets = torch.tensor(targets, dtype=torch.float32)
+        return (*stacked_features, stacked_targets)
+
+    # Split into train/validation
+    n_val = max(1, int(len(dataset) * validation_fraction))
+    n_train = len(dataset) - n_val
+    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+
+    LOGGER.info(f"Train: {n_train}, Validation: {n_val}")
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=_collate_fn)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=_collate_fn)
+
+    # Load pre-trained model
+    checkpoint_path = model or DEFAULT_MODEL
+    config = DEFAULT_CONFIG.copy()
+    config["learning_rate"] = learning_rate
+
+    loaded_model = IM2DeepArch.load_from_checkpoint(
+        checkpoint_path=str(checkpoint_path),
+        config=config,
+        criterion=torch.nn.L1Loss(),
+    )
+    loaded_model.to(device)
+
+    # Finetune with Lightning
+    trainer = L.Trainer(
+        max_epochs=epochs,
+        accelerator="auto" if device == "cuda" else "cpu",
+        enable_progress_bar=True,
+        enable_model_summary=False,
+        logger=False,
+    )
+
+    trainer.fit(loaded_model, train_loader, val_loader)
+
+    # Save the finetuned model
+    trainer.save_checkpoint(str(model_save_path))
+    LOGGER.info(f"Finetuned model saved to {model_save_path}")
+
+    return loaded_model
+
+
+def recommend_calibration_strategy(
+    median_error_pct: float,
+    n_reference_peptides: int,
+    error_threshold_pct: float = 3.0,
+    min_spline_peptides: int = 30,
+    min_finetune_peptides: int = 100,
+) -> str:
+    """
+    Recommend whether to use linear calibration, spline, or finetuning.
+
+    Based on the error patterns from predictor benchmarking (D2), decide
+    which calibration strategy is appropriate given the available data.
+
+    Parameters
+    ----------
+    median_error_pct
+        Median relative CCS prediction error (%) after linear calibration.
+    n_reference_peptides
+        Number of reference peptides available for calibration.
+    error_threshold_pct
+        If median error is below this, linear calibration is sufficient.
+    min_spline_peptides
+        Minimum peptides required for spline calibration. Below this,
+        only linear is safe (spline would overfit).
+    min_finetune_peptides
+        Minimum peptides required for finetuning.
+
+    Returns
+    -------
+    str
+        "linear", "spline", or "finetune"
+    """
+    if median_error_pct <= error_threshold_pct:
+        LOGGER.info(
+            f"Median error {median_error_pct:.2f}% <= {error_threshold_pct}%. "
+            "Linear calibration is sufficient."
+        )
+        return "linear"
+
+    if n_reference_peptides < min_spline_peptides:
+        LOGGER.info(
+            f"Median error {median_error_pct:.2f}% > {error_threshold_pct}% but only "
+            f"{n_reference_peptides} reference peptides (< {min_spline_peptides}). "
+            "Only linear calibration is safe — too few peptides for spline "
+            "(would overfit)."
+        )
+        return "linear"
+
+    if n_reference_peptides < min_finetune_peptides:
+        LOGGER.info(
+            f"Median error {median_error_pct:.2f}% > {error_threshold_pct}% with "
+            f"{n_reference_peptides} reference peptides (>= {min_spline_peptides}, "
+            f"< {min_finetune_peptides}). Recommending spline calibration."
+        )
+        return "spline"
+
+    LOGGER.info(
+        f"Median error {median_error_pct:.2f}% > {error_threshold_pct}% with "
+        f"{n_reference_peptides} reference peptides. Recommending finetuning."
+    )
+    return "finetune"
