@@ -7,14 +7,23 @@ Collisional cross-section prediction for (modified) peptides.
 IM2Deep is a deep learning-based CCS predictor for (modified) peptides. It accurately predicts collisional cross-section (CCS) values for modified peptides, even if the modification wasn't observed during training. The tool supports both single-conformer and multi-conformer predictions for peptide ions.
 
 ## Installation
-Install with pip:
+
+With Python 3.11 or higher, install with pip:
 
 ```bash
 pip install im2deep
 ```
 
-For local development/docs:
+We recommend using a [venv](https://docs.python.org/3/library/venv.html) or
+[conda](https://docs.conda.io/en/latest/) virtual environment.
+
+### For development
+
+Clone this repository and use [uv](https://docs.astral.sh/uv/) to install:
+
 ```bash
+git clone https://github.com/CompOmics/IM2Deep.git
+cd IM2Deep
 uv sync --group dev --group docs
 ```
 
@@ -113,7 +122,7 @@ IPQEKCILQTDVK,5|Butyryl|6|Carbamidomethyl,3,516.2079366048176
 - **Charge states**: IM2Deep predictions are reliable for charge states up to z=6. PSMs with higher charge states are automatically filtered out during validation.
 
 ## Citing
-If you use IM2Deep within the context of [(TI)MS<sup>2</sup>Rescore](https://github.com/compomics/ms2rescore), please cite the following:
+If you use IM2Deep within the context of [(TI)MS²Rescore](https://github.com/compomics/ms2rescore), please cite the following:
 > **TIMS²Rescore: A DDA-PASEF optimized data-driven rescoring pipeline based on MS²Rescore.**
 > Arthur Declercq*, Robbe Devreese*, Jonas Scheid, Caroline Jachmann, Tim Van Den Bossche, Annica Preikschat, David Gomez-Zepeda, Jeewan Babu Rijal, Aurélie Hirschler, Jonathan R Krieger, Tharan Srikumar, George Rosenberger, Dennis Trede, Christine Carapito, Stefan Tenzer, Juliane S Walz, Sven Degroeve, Robbin Bouwmeester, Lennart Martens, and Ralf Gabriels.
 > _Journal of Proteome Research_ (2025) [doi:10.1021/acs.jproteome.4c00609](https://doi.org/10.1021/acs.jproteome.4c00609) <span class="__dimensions_badge_embed__" data-doi="10.1021/acs.jproteome.4c00609" data-hide-zero-citations="true" data-style="small_rectangle"></span>

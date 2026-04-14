@@ -37,7 +37,7 @@ def im2ccs(
     temp: float = TEMP,
     t_diff: float = T_DIFF,
 ) -> float | np.ndarray:
-    """
+    r"""
     Convert reduced ion mobility to collisional cross section.
 
     This function converts reduced ion mobility (1/K0) values to collisional
@@ -67,18 +67,18 @@ def im2ccs(
     Notes
     -----
     The conversion uses the Mason-Schamp equation:
-    CCS = (18509.8632163405 * z) / (sqrt(μ * T) * K0)
 
-    Where:
-    - z is the charge
-    - μ is the reduced mass
-    - T is temperature in Kelvin
-    - K0 is the ion mobility
+    .. math::
+
+        \Omega = \frac{C \cdot z}{\sqrt{\mu \cdot T} \cdot K_0}
+
+    where :math:`\Omega` is the CCS, :math:`C` is a summary constant (18509.8632163405),
+    :math:`z` is the charge, :math:`\mu` is the reduced mass, :math:`T` is the temperature
+    in Kelvin, and :math:`K_0` is the reduced ion mobility.
 
     References
     ----------
-    Adapted from theGreatHerrLebert/ionmob
-    (https://doi.org/10.1093/bioinformatics/btad486)
+    Adapted from `theGreatHerrLebert/ionmob <https://doi.org/10.1093/bioinformatics/btad486>`_.
 
     Examples
     --------
@@ -116,7 +116,7 @@ def ccs2im(
     temp: float = TEMP,
     t_diff: float = T_DIFF,
 ) -> float | np.ndarray:
-    """
+    r"""
     Convert collisional cross section to reduced ion mobility.
 
     This function converts collisional cross section (CCS) values to reduced
@@ -145,17 +145,18 @@ def ccs2im(
     Notes
     -----
     The conversion uses the inverse Mason-Schamp equation:
-    1/K0 = (sqrt(μ * T) * CCS) / (18509.8632163405 * z)
 
-    Where:
-    - μ is the reduced mass
-    - T is temperature in Kelvin
-    - z is the charge
+    .. math::
+
+        \frac{1}{K_0} = \frac{\sqrt{\mu \cdot T} \cdot \Omega}{C \cdot z}
+
+    where :math:`\Omega` is the CCS, :math:`C` is a summary constant (18509.8632163405),
+    :math:`z` is the charge, :math:`\mu` is the reduced mass, and :math:`T` is the temperature
+    in Kelvin.
 
     References
     ----------
-    Adapted from theGreatHerrLebert/ionmob
-    (https://doi.org/10.1093/bioinformatics/btad486)
+    Adapted from `theGreatHerrLebert/ionmob <https://doi.org/10.1093/bioinformatics/btad486>`_.
 
     Examples
     --------
