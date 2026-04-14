@@ -178,6 +178,7 @@ def predict(ctx, *args, **kwargs):
     """
     # Check if profiling is enabled from parent context
     profile_enabled = ctx.obj.get("profile", False)
+    profiler = None
 
     if profile_enabled:
         # Run with profiling
@@ -187,8 +188,8 @@ def predict(ctx, *args, **kwargs):
     try:
         _run_predict(*args, **kwargs)
     finally:
-        if profile_enabled:
-            profiler.disable()  # type: ignore
+        if profiler is not None:
+            profiler.disable()
 
             # Get the IM2Deep root directory (two levels up from this file)
             root_dir = Path(__file__).parent.parent
@@ -196,7 +197,7 @@ def predict(ctx, *args, **kwargs):
             profiles_dir.mkdir(exist_ok=True)
 
             profile_output = profiles_dir / ctx.obj.get("profile_name", "im2deep_profile.prof")
-            profiler.dump_stats(profile_output)  # type: ignore
+            profiler.dump_stats(profile_output)
             LOGGER.info(f"Profiling data saved to {profile_output}")
             LOGGER.info(f"View with: snakeviz {profile_output}")
 
@@ -215,13 +216,13 @@ def _run_predict(*args, **kwargs):
 
     # Parse input files
     LOGGER.info("Parsing input files...")
-    psm_list = parse_input(Path(kwargs.get("precursors")))  # type: ignore[invalid-arg]
+    psm_list = parse_input(Path(kwargs["precursors"]))
 
     # Run prediction
     LOGGER.info("Running CCS prediction...")
     if kwargs.get("calibration_precursors"):
         LOGGER.info("Calibration file provided, performing calibration and prediction...")
-        psm_list_cal = parse_input(Path(kwargs.get("calibration_precursors")))  # type: ignore[invalid-arg]
+        psm_list_cal = parse_input(Path(kwargs["calibration_precursors"]))
         predictions = core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
     else:
         LOGGER.info(

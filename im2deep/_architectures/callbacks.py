@@ -3,7 +3,7 @@
 import lightning as L
 
 try:
-    import wandb  # type: ignore[import]
+    import wandb  # type: ignore[import] # ty: ignore[unresolved-import]
 except ImportError:
     wandb = None
 

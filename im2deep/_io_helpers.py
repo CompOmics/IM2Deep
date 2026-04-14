@@ -99,7 +99,7 @@ def parse_input(
                 if "CCS" in row:
                     if precursor.metadata is None:
                         precursor.metadata = {}
-                    precursor.metadata["CCS"] = _normalize_ccs_metadata_value(row["CCS"])  # type: ignore
+                    precursor.metadata["CCS"] = _normalize_ccs_metadata_value(row["CCS"])
                 list_of_precursors.append(precursor)
             except Exception as e:
                 LOGGER.warning("Error parsing row %d: %s. Skipping.", idx, e)
