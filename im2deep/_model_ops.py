@@ -92,6 +92,7 @@ def predict(
     device: str = "cpu",
     batch_size: int = 512,
     num_workers: int = 0,
+    num_threads: int | None = None,
 ) -> torch.Tensor:
     """
     Predict using a trained model.
@@ -108,6 +109,8 @@ def predict(
         Batch size for prediction.
     num_workers
         Number of workers for data loading.
+    num_threads
+        Number of threads for model operations on CPU (ignored if using GPU).
 
     Returns
     -------
@@ -118,6 +121,8 @@ def predict(
     # Check data first before loading model
     if data is None:
         raise ValueError("Data must be provided for prediction.")
+
+    torch.set_num_threads(num_threads or torch.get_num_threads())
 
     # TODO: implement custom model inference
     LOGGER.debug("Loading model for prediction.")
