@@ -41,10 +41,8 @@ dev = [
 docs = [
     "sphinx>=6.0",
     "numpydoc>=1.5",
-    "recommonmark>=0.7",
+    "sphinx-click",
     "sphinx-mdinclude>=0.5",
-    "toml>=0.10",
-    "semver>=2.13",
     "sphinx_rtd_theme>=1.2",
     "sphinx-autobuild>=2021.3",
 ]
