@@ -1,6 +1,6 @@
 [project]
 name = "im2deep"
-version = "2.0.0-alpha.2"
+version = "2.0.0-alpha.3"
 description = "Framework for prediction of collisional cross-section of peptides."
 readme = "README.md"
 license = { file = "LICENSE" }
