@@ -12,7 +12,8 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
-from psm_utils import Peptidoform, PSMList
+from psm_utils.peptidoform import Peptidoform
+from psm_utils.psm_list import PSMList
 
 from im2deep.constants import DEFAULT_MULTI_REFERENCE_DATASET_PATH, DEFAULT_REFERENCE_DATASET_PATH
 from im2deep.exceptions import CalibrationError

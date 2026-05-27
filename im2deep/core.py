@@ -260,11 +260,15 @@ def finetune(
     # Split into train/validation
     n_val = max(1, int(len(dataset) * validation_fraction))
     n_train = len(dataset) - n_val
-    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+    _split_gen = torch.Generator().manual_seed(42)
+    train_dataset, val_dataset = random_split(dataset, [n_train, n_val], generator=_split_gen)
 
     LOGGER.info(f"Train: {n_train}, Validation: {n_val}")
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=_collate_fn)
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0,
+        collate_fn=_collate_fn, generator=torch.Generator().manual_seed(42),
+    )
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=_collate_fn)
 
     # Load pre-trained model
@@ -280,12 +284,14 @@ def finetune(
     loaded_model.to(device)
 
     # Finetune with Lightning
+    L.seed_everything(42, workers=True)
     trainer = L.Trainer(
         max_epochs=epochs,
         accelerator="auto" if device == "cuda" else "cpu",
         enable_progress_bar=True,
         enable_model_summary=False,
         logger=False,
+        deterministic=True,
     )
 
     trainer.fit(loaded_model, train_loader, val_loader)
