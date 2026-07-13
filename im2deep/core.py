@@ -184,6 +184,7 @@ def finetune(
     learning_rate: float = 1e-4,
     validation_fraction: float = 0.2,
     batch_size: int = 64,
+    patience: int = 10,
     device: str = "cpu",
 ) -> torch.nn.Module:
     """
@@ -202,13 +203,16 @@ def finetune(
     model
         Pre-trained model or path. If None, uses the default IM2DeepUni.ckpt.
     epochs
-        Number of finetuning epochs. Default is 5.
+        Maximum number of finetuning epochs. Default is 5.
     learning_rate
         Learning rate for finetuning. Default is 1e-4 (10x lower than training).
     validation_fraction
         Fraction of data to hold out for validation. Default is 0.2.
     batch_size
         Batch size for training. Default is 64.
+    patience
+        Early stopping patience: stop training if validation loss does not improve
+        for this many consecutive epochs and restore the best model weights. Default is 10.
     device
         Device to use ('cpu' or 'cuda'). Default is 'cpu'.
 
@@ -284,7 +288,24 @@ def finetune(
     loaded_model.to(device)
 
     # Finetune with Lightning
+    import tempfile as _tempfile
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+    torch.set_num_threads(1)
+    LOGGER.info(f"finetune: torch.get_num_threads()={torch.get_num_threads()}")
     L.seed_everything(42, workers=True)
+    _ckpt_dir = _tempfile.mkdtemp(prefix="im2deep_ckpt_")
+    _checkpoint_cb = ModelCheckpoint(
+        monitor="Validation loss",
+        mode="min",
+        save_top_k=1,
+        dirpath=_ckpt_dir,
+        filename="best",
+    )
+    _early_stop_cb = EarlyStopping(
+        monitor="Validation loss",
+        mode="min",
+        patience=patience,
+    )
     trainer = L.Trainer(
         max_epochs=epochs,
         accelerator="auto" if device == "cuda" else "cpu",
@@ -292,9 +313,18 @@ def finetune(
         enable_model_summary=False,
         logger=False,
         deterministic=True,
+        default_root_dir=_ckpt_dir,
+        callbacks=[_checkpoint_cb, _early_stop_cb],
     )
 
     trainer.fit(loaded_model, train_loader, val_loader)
+
+    # Restore best model weights (lowest validation loss)
+    _best_ckpt = _checkpoint_cb.best_model_path
+    if _best_ckpt:
+        _best_state = torch.load(_best_ckpt, map_location=device, weights_only=True)
+        loaded_model.load_state_dict(_best_state["state_dict"])
+        LOGGER.info(f"Restored best model weights from epoch {_checkpoint_cb.best_model_score:.4f} val loss")
 
     # Save the finetuned model
     trainer.save_checkpoint(str(model_save_path))
