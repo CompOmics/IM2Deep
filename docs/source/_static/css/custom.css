@@ -1,0 +1,13 @@
+/* Replace the copyright with license info */
+div[role=contentinfo] {
+    visibility: hidden;
+    position: relative;
+}
+
+div[role=contentinfo]:after {
+    visibility: visible;
+    position: absolute;
+    top: 0;
+    left: 0;
+    content: "Apache License 2.0";
+}

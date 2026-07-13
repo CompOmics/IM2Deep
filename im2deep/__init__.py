@@ -20,35 +20,20 @@ Example:
     >>> from psm_utils.psm_list import PSMList
     >>> predictions = predict_ccs(psm_list, calibration_data)
 
-Dependencies:
-    - deeplc: For deep learning model infrastructure
-    - psm_utils: For peptide and PSM handling
-    - pandas: For data manipulation
-    - numpy: For numerical computations
-    - click: For command-line interface
-
-Authors:
-    - Robbe Devreese
-    - Robbin Bouwmeester
-    - Ralf Gabriels
-
-License:
-    Apache License 2.0
 """
 
-__version__ = "1.2.0"
+from importlib.metadata import PackageNotFoundError, version
 
-# Import main functionality for easier access
-from im2deep.im2deep import predict_ccs
-from im2deep.calibrate import linear_calibration
+from im2deep.core import predict, predict_and_calibrate
 from im2deep.utils import ccs2im, im2ccs
-from im2deep._exceptions import IM2DeepError, CalibrationError
 
+try:
+    __version__: str = version("im2deep")
+except PackageNotFoundError:
+    __version__ = "0.0.0"  # Fallback for version in pyproject.toml
 __all__ = [
-    "predict_ccs",
-    "linear_calibration",
+    "predict",
+    "predict_and_calibrate",
     "ccs2im",
     "im2ccs",
-    "IM2DeepError",
-    "CalibrationError",
 ]

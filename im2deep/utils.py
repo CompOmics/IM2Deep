@@ -15,25 +15,29 @@ Constants:
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import logging
 
 import numpy as np
 
-MULTI_BACKBONE_PATH = (
-    Path(__file__).parent / "models" / "TIMS_multi" / "multi_output_backbone.ckpt"
+from im2deep.constants import (
+    MASS_GAS_N2,
+    SUMMARY_CONSTANT,
+    T_DIFF,
+    TEMP,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 def im2ccs(
     reverse_im: float | np.ndarray,
     mz: float | np.ndarray,
     charge: int | np.ndarray,
-    mass_gas: float = 28.013,
-    temp: float = 31.85,
-    t_diff: float = 273.15,
+    mass_gas: float = MASS_GAS_N2,
+    temp: float = TEMP,
+    t_diff: float = T_DIFF,
 ) -> float | np.ndarray:
-    """
+    r"""
     Convert reduced ion mobility to collisional cross section.
 
     This function converts reduced ion mobility (1/K0) values to collisional
@@ -63,18 +67,18 @@ def im2ccs(
     Notes
     -----
     The conversion uses the Mason-Schamp equation:
-    CCS = (18509.8632163405 * z) / (sqrt(μ * T) * K0)
 
-    Where:
-    - z is the charge
-    - μ is the reduced mass
-    - T is temperature in Kelvin
-    - K0 is the ion mobility
+    .. math::
+
+        \Omega = \frac{C \cdot z}{\sqrt{\mu \cdot T} \cdot K_0}
+
+    where :math:`\Omega` is the CCS, :math:`C` is a summary constant (18509.8632163405),
+    :math:`z` is the charge, :math:`\mu` is the reduced mass, :math:`T` is the temperature
+    in Kelvin, and :math:`K_0` is the reduced ion mobility.
 
     References
     ----------
-    Adapted from theGreatHerrLebert/ionmob
-    (https://doi.org/10.1093/bioinformatics/btad486)
+    Adapted from `theGreatHerrLebert/ionmob <https://doi.org/10.1093/bioinformatics/btad486>`_.
 
     Examples
     --------
@@ -100,7 +104,6 @@ def im2ccs(
     if temp <= -t_diff:
         raise ValueError("Temperature must be above absolute zero")
 
-    SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return (SUMMARY_CONSTANT * charge) / (np.sqrt(reduced_mass * (temp + t_diff)) * 1 / reverse_im)
 
@@ -109,11 +112,11 @@ def ccs2im(
     ccs: float | np.ndarray,
     mz: float | np.ndarray,
     charge: int | np.ndarray,
-    mass_gas: float = 28.013,
-    temp: float = 31.85,
-    t_diff: float = 273.15,
+    mass_gas: float = MASS_GAS_N2,
+    temp: float = TEMP,
+    t_diff: float = T_DIFF,
 ) -> float | np.ndarray:
-    """
+    r"""
     Convert collisional cross section to reduced ion mobility.
 
     This function converts collisional cross section (CCS) values to reduced
@@ -142,17 +145,18 @@ def ccs2im(
     Notes
     -----
     The conversion uses the inverse Mason-Schamp equation:
-    1/K0 = (sqrt(μ * T) * CCS) / (18509.8632163405 * z)
 
-    Where:
-    - μ is the reduced mass
-    - T is temperature in Kelvin
-    - z is the charge
+    .. math::
+
+        \frac{1}{K_0} = \frac{\sqrt{\mu \cdot T} \cdot \Omega}{C \cdot z}
+
+    where :math:`\Omega` is the CCS, :math:`C` is a summary constant (18509.8632163405),
+    :math:`z` is the charge, :math:`\mu` is the reduced mass, and :math:`T` is the temperature
+    in Kelvin.
 
     References
     ----------
-    Adapted from theGreatHerrLebert/ionmob
-    (https://doi.org/10.1093/bioinformatics/btad486)
+    Adapted from `theGreatHerrLebert/ionmob <https://doi.org/10.1093/bioinformatics/btad486>`_.
 
     Examples
     --------
@@ -178,34 +182,5 @@ def ccs2im(
     if temp <= -t_diff:
         raise ValueError("Temperature must be above absolute zero")
 
-    SUMMARY_CONSTANT = 18509.8632163405
     reduced_mass = (mz * charge * mass_gas) / (mz * charge + mass_gas)
     return ((np.sqrt(reduced_mass * (temp + t_diff))) * ccs) / (SUMMARY_CONSTANT * charge)
-
-
-# Configuration for multi-conformer model
-multi_config: dict[str, Any] = {
-    "model_name": "IM2DeepMulti",
-    "batch_size": 16,
-    "learning_rate": 0.0001,
-    "AtomComp_kernel_size": 4,
-    "DiatomComp_kernel_size": 2,
-    "One_hot_kernel_size": 2,
-    "AtomComp_out_channels_start": 256,
-    "DiatomComp_out_channels_start": 128,
-    "Global_units": 16,
-    "OneHot_out_channels": 2,
-    "Concat_units": 128,
-    "AtomComp_MaxPool_kernel_size": 2,
-    "DiatomComp_MaxPool_kernel_size": 2,
-    "Mol_MaxPool_kernel_size": 2,
-    "OneHot_MaxPool_kernel_size": 10,
-    "LRelu_negative_slope": 0.1,
-    "LRelu_saturation": 20,
-    "L1_alpha": 0.00001,
-    "delta": 0,
-    "device": 0,
-    "add_X_mol": False,
-    "init": "normal",
-    "backbone_SD_path": MULTI_BACKBONE_PATH,
-}

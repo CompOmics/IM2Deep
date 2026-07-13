@@ -26,214 +26,88 @@ Usage:
     Ion mobility output:
         im2deep input_peptides.csv -c calibration_data.csv -i
 
-Dependencies:
-    - click: Command-line interface framework
-    - psm_utils: Peptide and PSM data handling
-    - rich: Enhanced logging and progress display
-    - pandas: Data manipulation
-
-Authors:
-    - Robbe Devreese
-    - Robbin Bouwmeester
-    - Ralf Gabriels
 """
 
 from __future__ import annotations
 
+import cProfile
 import logging
-import sys
 from pathlib import Path
-from typing import Optional
 
 import click
-import pandas as pd
+from rich.console import Console
+from rich.text import Text
 
-from psm_utils.io import read_file
-from psm_utils.io.exceptions import PSMUtilsIOException
-from psm_utils.io.peptide_record import peprec_to_proforma
-from psm_utils.psm import PSM
-from psm_utils.psm_list import PSMList
-from rich.logging import RichHandler
+from im2deep import __version__, core
+from im2deep._io_helpers import (
+    DefaultCommandGroup,
+    infer_output_name,
+    parse_input,
+    setup_logging,
+    write_output,
+)
 
-REFERENCE_DATASET_PATH = Path(__file__).parent / "reference_data" / "reference_ccs.zip"
-
+console = Console()
 LOGGER = logging.getLogger(__name__)
 
 
-def setup_logging(passed_level: str) -> None:
+# Command line interface
+@click.group(cls=DefaultCommandGroup, default_command="predict", invoke_without_command=True)
+@click.pass_context
+@click.option(
+    "--logging-level",
+    "-l",
+    type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
+    default="info",
+    help="Set logging verbosity level.",
+)
+@click.option(
+    "--profile",
+    is_flag=True,
+    default=False,
+    help="Enable profiling with cProfile. Results saved to 'im2deep_profile.prof'.",
+)
+@click.option(
+    "--profile-name",
+    type=click.Path(dir_okay=False),
+    default="im2deep_profile.prof",
+    help="Output file name for cProfile results when --profile is enabled.",
+)
+@click.version_option(version=__version__)
+def cli(ctx, logging_level, profile, profile_name):
+    """IM2Deep: Predict CCS values for peptides using deep learning.
+
+    Run prediction with: im2deep INPUT_FILE [OPTIONS]
+
+    With calibration: im2deep INPUT_FILE -c CALIBRATION_FILE
+
+    Use subcommands for additional functionality:
+        im2deep train ...
     """
-    Configure logging with Rich formatting.
+    setup_logging(logging_level)
 
-    Parameters
-    ----------
-    passed_level : str
-        Logging level name (debug, info, warning, error, critical)
+    # Store parameters in context for subcommands
+    ctx.ensure_object(dict)
+    ctx.obj["logging_level"] = logging_level
+    ctx.obj["profile"] = profile
+    ctx.obj["profile_name"] = profile_name
 
-    Raises
-    ------
-    ValueError
-        If invalid logging level provided
-    """
-    log_mapping = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "warning": logging.WARNING,
-        "error": logging.ERROR,
-        "critical": logging.CRITICAL,
-    }
-
-    if passed_level.lower() not in log_mapping:
-        raise ValueError(
-            f"Invalid log level: {passed_level}. " f"Should be one of {list(log_mapping.keys())}"
-        )
-
-    logging.basicConfig(
-        level=log_mapping[passed_level.lower()],
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler()],
-    )
+    console.print(_build_credits())
 
 
-def check_optional_dependencies() -> None:
-    """
-    Check if optional dependencies for multi-conformer prediction are available.
-
-    Raises
-    ------
-    SystemExit
-        If required dependencies are missing
-    """
-    try:
-        import torch
-        import im2deeptrainer
-
-        LOGGER.debug("Optional dependencies for multi-conformer prediction found")
-    except ImportError:
-        LOGGER.error(
-            "Multi-conformer prediction requires optional dependencies.\n"
-            "Please install IM2Deep with optional dependencies:\n"
-            "pip install 'im2deep[er]'"
-        )
-        sys.exit(1)
-
-
-def _validate_file_format(file_path: str, file_type: str = "input") -> bool:
-    """
-    Validate file format and accessibility.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to file to validate
-    file_type : str
-        Type of file for error messages
-
-    Returns
-    -------
-    bool
-        True if file is valid
-
-    Raises
-    ------
-    click.ClickException
-        If file validation fails
-    """
-    path = Path(file_path)
-
-    if not path.exists():
-        raise click.ClickException(f"{file_type.capitalize()} file not found: {file_path}")
-
-    if not path.is_file():
-        raise click.ClickException(f"{file_type.capitalize()} path is not a file: {file_path}")
-
-    if path.suffix.lower() not in [".csv", ".txt", ".tsv"]:
-        LOGGER.warning(f"Unexpected file extension for {file_type} file: {path.suffix}")
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            first_line = f.readline().strip()
-            if not first_line:
-                raise click.ClickException(f"{file_type.capitalize()} file appears to be empty")
-    except Exception as e:
-        raise click.ClickException(f"Error reading {file_type} file: {e}")
-
-    return True
-
-
-def _parse_csv_input(file_path: str, file_type: str = "prediction") -> PSMList:
-    """
-    Parse CSV input file into PSMList.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to CSV file
-    file_type : str
-        Type of file for error messages
-
-    Returns
-    -------
-    PSMList
-        Parsed PSM data
-
-    Raises
-    ------
-    click.ClickException
-        If parsing fails
-    """
-    try:
-        df = pd.read_csv(file_path)
-        df = df.fillna("")
-
-        required_cols = ["seq", "modifications", "charge"]
-        missing_cols = set(required_cols) - set(df.columns)
-        if missing_cols:
-            raise click.ClickException(
-                f"Missing required columns in {file_type} file: {missing_cols}\n"
-                f"Required columns: {required_cols}"
-            )
-
-        if file_type == "calibration" and "CCS" not in df.columns:
-            raise click.ClickException("Calibration file must contain 'CCS' column")
-
-        list_of_psms = []
-        for idx, row in df.iterrows():
-            try:
-                peptidoform = peprec_to_proforma(row["seq"], row["modifications"], row["charge"])
-                metadata = {}
-                if file_type == "calibration" and "CCS" in row:
-                    metadata["CCS"] = float(row["CCS"])
-
-                psm = PSM(peptidoform=peptidoform, metadata=metadata, spectrum_id=idx)
-                list_of_psms.append(psm)
-            except Exception as e:
-                LOGGER.warning(f"Skipping row {idx} due to parsing error: {e}")
-                continue
-
-        if not list_of_psms:
-            raise click.ClickException(f"No valid peptides found in {file_type} file")
-
-        LOGGER.info(f"Parsed {len(list_of_psms)} peptides from {file_type} file")
-        return PSMList(psm_list=list_of_psms)
-
-    except pd.errors.EmptyDataError:
-        raise click.ClickException(f"{file_type.capitalize()} file is empty")
-    except pd.errors.ParserError as e:
-        raise click.ClickException(f"Error parsing {file_type} file: {e}")
-    except Exception as e:
-        raise click.ClickException(f"Unexpected error reading {file_type} file: {e}")
-
-
-# Command line interface with comprehensive options
-@click.command()
-@click.argument("psm-file", type=click.Path(exists=True, dir_okay=False), metavar="INPUT_FILE")
+# TODO:  Check that parameters match predict function in core
+# Implement psm_utils reading for calibration and prediction PSMLists
+@cli.command()
+@click.pass_context
+@click.argument(
+    "precursors", type=click.Path(exists=True, dir_okay=False), metavar="INPUT_FILE", required=True
+)
 @click.option(
     "-c",
-    "--calibration-file",
+    "--calibration-precursors",
     type=click.Path(exists=True, dir_okay=False),
     default=None,
-    help="Path to calibration file with known CCS values. Highly recommended for accurate predictions.",
+    help="Path to file with precursors with known CCS values. If provided, calibration is performed.",
 )
 @click.option(
     "-o",
@@ -247,26 +121,19 @@ def _parse_csv_input(file_path: str, file_type: str = "prediction") -> PSMList:
     "--model-name",
     type=click.Choice(["tims"], case_sensitive=False),
     default="tims",
-    help="Neural network model to use for prediction.",
+    help="Neural network model to use for prediction. Currently only 'tims' is supported.",
 )
 @click.option(
     "-e",
     "--multi",
     is_flag=True,
     default=False,
-    help="Enable multi-conformer prediction. Requires optional dependencies: pip install 'im2deep[er]'",
-)
-@click.option(
-    "-l",
-    "--log-level",
-    type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
-    default="info",
-    help="Set logging verbosity level.",
+    help="Enable multi-conformer prediction.",
 )
 @click.option(
     "-n",
-    "--n-jobs",
-    type=click.IntRange(min=1),
+    "--processes",
+    type=int,
     default=None,
     help="Number of parallel jobs for model inference. Default uses all available CPU cores.",
 )
@@ -295,161 +162,148 @@ def _parse_csv_input(file_path: str, file_type: str = "prediction") -> PSMList:
     default=False,
     help="Output ion mobility (1/K0) instead of CCS values.",
 )
-def main(
-    psm_file: str,
-    calibration_file: Optional[str] = None,
-    output_file: Optional[str] = None,
-    model_name: str = "tims",
-    multi: bool = False,
-    log_level: str = "info",
-    n_jobs: Optional[int] = None,
-    use_single_model: bool = True,
-    calibrate_per_charge: bool = True,
-    use_charge_state: int = 2,
-    ion_mobility: bool = False,
-) -> None:
+@click.option(
+    "-l",
+    "--logging-level",
+    type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
+    default="info",
+    help="Set logging verbosity level.",
+)
+def predict(ctx, *args, **kwargs):
     """
-    IM2Deep: Predict CCS values for peptides using deep learning.
+    Predict CCS values for peptides (default command).
 
-    IM2Deep predicts Collisional Cross Section (CCS) values for peptides,
-    including those with post-translational modifications. The tool supports
-    both single-conformer and multi-conformer predictions with optional
-    calibration using reference datasets.
-
-    INPUT_FILE should be a CSV file with columns:
-    \b
-    - seq: Peptide sequence (required)
-    - modifications: Modifications in format "position|name" (required, can be empty)
-    - charge: Charge state (required)
-
-    For calibration files, an additional 'CCS' column with observed values is required.
-
-    Examples:
-    \b
-        # Basic prediction
-        im2deep peptides.csv
-
-        # With calibration (recommended)
-        im2deep peptides.csv -c calibration.csv
-
-        # Multi-conformer prediction
-        im2deep peptides.csv -c calibration.csv -e
-
-        # Ion mobility output
-        im2deep peptides.csv -c calibration.csv -i
-
-        # Ensemble prediction with custom output
-        im2deep peptides.csv -c calibration.csv -o results.csv --use-single-model False
+    If no calibration file is provided with -c, performs prediction only.
+    With -c, performs calibration and prediction for improved accuracy.
     """
+    # Check if profiling is enabled from parent context
+    profile_enabled = ctx.obj.get("profile", False)
+    profiler = None
+
+    if profile_enabled:
+        # Run with profiling
+        profiler = cProfile.Profile()
+        profiler.enable()
+
     try:
-        # Setup logging first
-        setup_logging(log_level)
+        _run_predict(*args, **kwargs)
+    finally:
+        if profiler is not None:
+            profiler.disable()
 
-        LOGGER.info("IM2Deep command-line interface started")
-        LOGGER.debug(
-            f"Input arguments: psm_file={psm_file}, calibration_file={calibration_file}, "
-            f"multi={multi}, ion_mobility={ion_mobility}"
+            # Get the IM2Deep root directory (two levels up from this file)
+            root_dir = Path(__file__).parent.parent
+            profiles_dir = root_dir / "profiles"
+            profiles_dir.mkdir(exist_ok=True)
+
+            profile_output = profiles_dir / ctx.obj.get("profile_name", "im2deep_profile.prof")
+            profiler.dump_stats(profile_output)
+            LOGGER.info(f"Profiling data saved to {profile_output}")
+            LOGGER.info(f"View with: snakeviz {profile_output}")
+
+
+def _run_predict(*args, **kwargs):
+    """Internal function that performs the actual prediction work."""
+    # Setup logging first
+    setup_logging(kwargs.get("logging_level", "info"))
+
+    LOGGER.info("Starting IM2Deep CCS prediction...")
+    LOGGER.debug(
+        f"Input arguments: precursors={kwargs.get('precursors')}, "
+        f"calibration_precursors={kwargs.get('calibration_precursors')}, multi={kwargs.get('multi')}, "
+        f"ion_mobility={kwargs.get('ion_mobility')}"
+    )
+
+    # Parse input files
+    LOGGER.info("Parsing input files...")
+    psm_list = parse_input(Path(kwargs["precursors"]))
+
+    # Run prediction
+    LOGGER.info("Running CCS prediction...")
+    if kwargs.get("calibration_precursors"):
+        LOGGER.info("Calibration file provided, performing calibration and prediction...")
+        psm_list_cal = parse_input(Path(kwargs["calibration_precursors"]))
+        predictions = core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
+    else:
+        LOGGER.info(
+            "No calibration file provided (calibration is HIGHLY recommended), performing prediction only..."
         )
+        predictions = core.predict(*args, **kwargs)
 
-        # Import main functionality (after logging setup)
-        from im2deep._exceptions import IM2DeepError
-        from im2deep.im2deep import predict_ccs
+    # Output results
+    LOGGER.info("IM2Deep CCS prediction completed successfully!")
+    output_name = kwargs.pop("output_file")
+    output_name = infer_output_name(kwargs["precursors"], output_name).with_suffix(".csv")
+    LOGGER.info(f"Writing output file to {output_name}...")
+    write_output(output_name, predictions, psm_list, kwargs.get("ion_mobility", False))
+    LOGGER.info("Output file written successfully.")
+    LOGGER.info("IM2Deep finished.")
 
-        # Check optional dependencies if multi-conformer requested
-        if multi:
-            check_optional_dependencies()
 
-        # Validate input files
-        _validate_file_format(psm_file, "input")
-        if calibration_file:
-            _validate_file_format(calibration_file, "calibration")
+# TODO: implement train command
+# @cli.command()
+# @click.argument("training_data", type=click.Path(exists=True, dir_okay=False))
+# @click.option(
+#     "-o",
+#     "--output-model",
+#     type=click.Path(dir_okay=False),
+#     required=True,
+#     help="Path to save the trained model.",
+# )
+# @click.option(
+#     "--epochs",
+#     type=int,
+#     default=100,
+#     help="Number of training epochs.",
+# )
+# @click.option(
+#     "-l",
+#     "--logging-level",
+#     type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
+#     default="info",
+#     help="Set logging verbosity level.",
+# )
+# def train(training_data, output_model, epochs, logging_level):
+#     """Train a new IM2Deep model.
 
-        # Parse input files
-        LOGGER.info("Parsing input files...")
+#     Example: im2deep train training_data.csv -o my_model.ckpt
+#     """
+#     setup_logging(logging_level)
+#     LOGGER.info("Starting IM2Deep training...")
 
-        # Try to determine file format
-        with open(psm_file, "r", encoding="utf-8") as f:
-            first_line = f.readline().strip()
+#     # Parse training data
+#     psm_list_train = _parse_csv_input(training_data, "training")
 
-        # Check if it's the expected CSV format
-        if "modifications" in first_line and "seq" in first_line:
-            psm_list_pred = _parse_csv_input(psm_file, "prediction")
-            df_pred = pd.read_csv(psm_file).fillna("")
-        else:
-            # Try psm_utils for other formats
-            try:
-                psm_list_pred = read_file(psm_file)
-                df_pred = None
-                LOGGER.info(f"Loaded {len(psm_list_pred)} PSMs using psm_utils")
-            except PSMUtilsIOException as e:
-                raise click.ClickException(
-                    f"Could not parse input file. Expected CSV with columns 'seq', 'modifications', 'charge' "
-                    f"or a format supported by psm_utils. Error: {e}"
-                )
+#     # Call training function
+#     core.train(
+#         psm_list=psm_list_train,
+#         model_save_path=output_model,
+#         training_kwargs={"epochs": epochs},
+#     )
 
-        # Parse calibration file
-        psm_list_cal = None
-        df_cal = None
-        if calibration_file:
-            with open(calibration_file, "r", encoding="utf-8") as f:
-                cal_first_line = f.readline().strip()
+#     LOGGER.info(f"Training completed. Model saved to {output_model}")
 
-            if (
-                "modifications" in cal_first_line
-                and "seq" in cal_first_line
-                and "CCS" in cal_first_line
-            ):
-                psm_list_cal = _parse_csv_input(calibration_file, "calibration")
-                df_cal = pd.read_csv(calibration_file).fillna("")
-            else:
-                raise click.ClickException(
-                    "Calibration file must be CSV with columns: 'seq', 'modifications', 'charge', 'CCS'"
-                )
-        else:
-            LOGGER.warning(
-                "No calibration file provided. Predictions will be uncalibrated. "
-                "Calibration is HIGHLY recommended for accurate results."
-            )
 
-        # Set up output file
-        if not output_file:
-            input_path = Path(psm_file)
-            output_file = input_path.parent / f"{input_path.stem}_IM2Deep-predictions.csv"
+def _build_credits():
+    """Build credits"""
+    text = Text()
+    text.append("\n")
+    text.append("IM2Deep\n", style="bold link https://github.com/compomics/im2deep")
+    text.append("Developed at CompOmics, VIB / Ghent University, Belgium.\n")
+    text.append("Please cite: ")
+    text.append(
+        "Devreese et al. Anal. Chem. (2025)",
+        style="link https://pubs.acs.org/doi/10.1021/acs.analchem.5c01142",
+    )
+    text.append("\n")
+    text.stylize("cyan")
+    return text
 
-        LOGGER.info(f"Output will be written to: {output_file}")
 
-        # Run prediction
-        LOGGER.info("Starting CCS prediction...")
-        predict_ccs(
-            psm_list_pred,
-            psm_list_cal,
-            output_file=output_file,
-            model_name=model_name,
-            multi=multi,
-            calibrate_per_charge=calibrate_per_charge,
-            use_charge_state=use_charge_state,
-            n_jobs=n_jobs,
-            use_single_model=use_single_model,
-            ion_mobility=ion_mobility,
-            pred_df=df_pred,
-            cal_df=df_cal,
-            write_output=True,
-        )
-
-        LOGGER.info("IM2Deep completed successfully!")
-
-    except IM2DeepError as e:
-        LOGGER.error(f"IM2Deep error: {e}")
-        sys.exit(1)
-    except click.ClickException:
-        # Re-raise click exceptions to preserve formatting
-        raise
-    except Exception as e:
-        LOGGER.error(f"Unexpected error: {e}")
-        if log_level.lower() == "debug":
-            LOGGER.exception("Full traceback:")
-        sys.exit(1)
+def main():
+    cli(obj={})
 
 
 if __name__ == "__main__":
     main()
+    _build_credits()

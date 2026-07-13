@@ -23,8 +23,8 @@ cd IM2Deep
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install in development mode
-pip install -e .[dev,test]
+# Install dependencies (core + dev group)
+uv sync --group dev
 ```
 
 ## Code Standards
