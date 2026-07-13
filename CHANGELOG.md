@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-13
+
 ### Added
 - New `core` module with `predict` and `predict_and_calibrate` as main public API
 - New `calibration` module replacing `calibrate`, with `Calibration` and `LinearCCSCalibration` classes
@@ -28,15 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** Minimum Python version raised from 3.10 to 3.11
 - **Breaking:** Switched from Keras/TensorFlow models to PyTorch Lightning models (`.ckpt`)
 - Switched build system from setuptools to uv
-- Replaced `deeplc<4` dependency with `deeplc>=4.0.0a1`
-- Removed pinned `numpy==1.26.0` dependency
-- Removed `im2deeptrainer` optional dependency
 - CLI restructured as click command group with `predict` as default command
 - Renamed reference data files for clarity
 - Linting moved from black/isort to ruff
+- Upgrade `deeplc` dependency to `deeplc>=4.0.0b1,<5`
+- Added explicit lower/upper version bounds to all core dependencies.
 
 ### Removed
 - `im2deep.py` module (replaced by `core.py`)
 - `calibrate.py` module (replaced by `calibration.py`)
 - `predict_multi.py` module (functionality merged into architecture subpackage)
 - Keras model files
+- Removed pinned `numpy==1.26.0` dependency
+- Removed `im2deeptrainer` optional dependency
