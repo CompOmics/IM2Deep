@@ -253,8 +253,12 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     charges = np.array([psm.peptidoform.precursor_charge for psm in psm_list])
     psm_list_filtered = psm_list[(charges != None) & (charges <= 6)]  # noqa: E711
 
-    # TODO: Is deepcopy really necessary or can it be avoided?
-    psm_list_filtered = deepcopy(psm_list_filtered)
+    # Filtering above shares PSM instances with the input psm_list (no copy). A deep copy is only
+    # needed when the block below will mutate PSMs in place (writing psm.metadata["CCS"]); for the
+    # plain prediction path (needs_target=False) nothing downstream mutates PSMs, so skip it there
+    # to avoid an O(n) full-object-graph copy on large PSM lists.
+    if needs_target:
+        psm_list_filtered = deepcopy(psm_list_filtered)
 
     if len(psm_list_filtered) < original_size:
         filtered_count = original_size - len(psm_list_filtered)
