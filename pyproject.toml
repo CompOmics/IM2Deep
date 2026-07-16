@@ -1,6 +1,6 @@
 [project]
 name = "im2deep"
-version = "2.0.1"
+version = "2.0.2"
 description = "Framework for prediction of collisional cross-section of peptides."
 readme = "README.md"
 license = "Apache-2.0"

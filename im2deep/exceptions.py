@@ -30,7 +30,7 @@ class IM2DeepError(Exception):
     Examples
     --------
     >>> try:
-    ...     predict_ccs(invalid_data)
+    ...     predict(invalid_psm_list)
     ... except IM2DeepError as exc:
     ...     print(f"IM2Deep error occurred: {exc}")
     """
@@ -68,7 +68,7 @@ class CalibrationError(IM2DeepError):
     Examples
     --------
     >>> try:
-    ...     linear_calibration(pred_df, cal_df, ref_df)
+    ...     predict_and_calibrate(psm_list, psm_list_cal)
     ... except CalibrationError as exc:
     ...     print(f"Calibration failed: {exc}")
     """

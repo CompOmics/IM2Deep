@@ -16,9 +16,9 @@ Key Features:
 Example:
     Basic usage for CCS prediction:
 
-    >>> from im2deep.im2deep import predict_ccs
+    >>> from im2deep import predict
     >>> from psm_utils.psm_list import PSMList
-    >>> predictions = predict_ccs(psm_list, calibration_data)
+    >>> predictions = predict(psm_list)
 
 """
 
