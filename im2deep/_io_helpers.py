@@ -56,7 +56,7 @@ def parse_input(
 
     Parameters
     ----------
-    file_path : str, Path, or PSMList
+    input_file : str, Path, or PSMList
         Path to the input file or a PSMList object.
 
     Returns
@@ -228,6 +228,12 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     Validate that the PSM list contains necessary fields. And homogenizes the data.
     Also removes entries with charge state higher than 6.
 
+    Notes
+    -----
+    When ``needs_target=True``, this function mutates the PSMs in ``psm_list`` in place
+    (normalizing/writing ``psm.metadata["CCS"]``) rather than copying them first. Callers
+    that need to keep their original PSMList untouched should pass a copy.
+
     Parameters
     ----------
     psm_list : PSMList
@@ -252,19 +258,10 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     charges = np.array([psm.peptidoform.precursor_charge for psm in psm_list])
     psm_list_filtered = psm_list[(charges != None) & (charges <= 6)]  # noqa: E711
 
-    # Filtering above shares PSM instances with the input psm_list (no copy). The block below
-    # mutates psm.metadata in place (writing psm.metadata["CCS"]), so PSMs must be detached from
-    # the caller's originals before that happens. A full deepcopy also copies the peptidoform and
-    # other untouched fields, which dominates memory on large PSM lists. Since PSM is a pydantic
-    # model, a per-PSM shallow copy with a fresh metadata dict is enough: it reuses the (unmutated)
-    # peptidoform and other fields by reference while giving each PSM its own metadata dict.
-    if needs_target:
-        psm_list_filtered = PSMList(
-            psm_list=[
-                psm.model_copy(update={"metadata": dict(psm.metadata) if psm.metadata else {}})
-                for psm in psm_list_filtered
-            ]
-        )
+    # Filtering above shares PSM instances with the input psm_list (no copy), and the
+    # needs_target block below writes psm.metadata["CCS"] directly onto those shared PSMs.
+    # This function therefore mutates the caller's psm_list in place when needs_target=True;
+    # no defensive copy is made, to avoid the memory cost of copying large PSM lists.
 
     if len(psm_list_filtered) < original_size:
         filtered_count = original_size - len(psm_list_filtered)
@@ -274,7 +271,7 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
         )
 
     if len(psm_list_filtered) == 0:
-        raise IM2DeepError("No PSMs present in provided PSMLists.")
+        raise IM2DeepError("No PSMs present in provided PSMLists after validation.")
 
     all_has_targets = True
     if needs_target:
