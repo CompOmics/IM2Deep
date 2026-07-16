@@ -8,6 +8,7 @@
    :maxdepth: 2
 
    Home <self>
+   Changelog <changelog>
 
 
 .. toctree::

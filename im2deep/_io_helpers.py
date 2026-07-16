@@ -16,7 +16,6 @@ Constants:
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +56,7 @@ def parse_input(
 
     Parameters
     ----------
-    file_path : str, Path, or PSMList
+    input_file : str, Path, or PSMList
         Path to the input file or a PSMList object.
 
     Returns
@@ -229,6 +228,12 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     Validate that the PSM list contains necessary fields. And homogenizes the data.
     Also removes entries with charge state higher than 6.
 
+    Notes
+    -----
+    When ``needs_target=True``, this function mutates the PSMs in ``psm_list`` in place
+    (normalizing/writing ``psm.metadata["CCS"]``) rather than copying them first. Callers
+    that need to keep their original PSMList untouched should pass a copy.
+
     Parameters
     ----------
     psm_list : PSMList
@@ -253,12 +258,10 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     charges = np.array([psm.peptidoform.precursor_charge for psm in psm_list])
     psm_list_filtered = psm_list[(charges != None) & (charges <= 6)]  # noqa: E711
 
-    # Filtering above shares PSM instances with the input psm_list (no copy). A deep copy is only
-    # needed when the block below will mutate PSMs in place (writing psm.metadata["CCS"]); for the
-    # plain prediction path (needs_target=False) nothing downstream mutates PSMs, so skip it there
-    # to avoid an O(n) full-object-graph copy on large PSM lists.
-    if needs_target:
-        psm_list_filtered = deepcopy(psm_list_filtered)
+    # Filtering above shares PSM instances with the input psm_list (no copy), and the
+    # needs_target block below writes psm.metadata["CCS"] directly onto those shared PSMs.
+    # This function therefore mutates the caller's psm_list in place when needs_target=True;
+    # no defensive copy is made, to avoid the memory cost of copying large PSM lists.
 
     if len(psm_list_filtered) < original_size:
         filtered_count = original_size - len(psm_list_filtered)
@@ -268,13 +271,13 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
         )
 
     if len(psm_list_filtered) == 0:
-        raise IM2DeepError("No PSMs present in provided PSMLists.")
+        raise IM2DeepError("No PSMs present in provided PSMLists after validation.")
 
     all_has_targets = True
     if needs_target:
         # Check if PSMs have either ion_mobility or CCS
         all_has_targets = all(
-            psm.ion_mobility is not None or psm.metadata.get("CCS") is not None
+            psm.ion_mobility is not None or (psm.metadata or {}).get("CCS") is not None
             for psm in psm_list_filtered
         )
 
@@ -284,13 +287,19 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
             if psm.metadata is None:
                 psm.metadata = {}
 
-            if psm.ion_mobility is not None:
+            theoretical_mz = psm.peptidoform.theoretical_mz
+            precursor_charge = psm.peptidoform.precursor_charge
+            if (
+                psm.ion_mobility is not None
+                and theoretical_mz is not None
+                and precursor_charge is not None
+            ):
                 if "CCS" not in psm.metadata:
                     psm.metadata["CCS"] = _normalize_ccs_metadata_value(
                         im2ccs(
                             psm.ion_mobility,
-                            psm.peptidoform.theoretical_mz,
-                            psm.peptidoform.precursor_charge,
+                            theoretical_mz,
+                            precursor_charge,
                         )
                     )
             elif psm.metadata.get("CCS") is not None:

@@ -228,7 +228,7 @@ def _run_predict(*args, **kwargs):
         LOGGER.info(
             "No calibration file provided (calibration is HIGHLY recommended), performing prediction only..."
         )
-        predictions = core.predict(*args, **kwargs)
+        predictions = core.predict(psm_list, multi=kwargs.get("multi", False))
 
     # Output results
     LOGGER.info("IM2Deep CCS prediction completed successfully!")

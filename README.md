@@ -106,7 +106,7 @@ Alternatively, use comma-separated values (CSV) with the following columns:
 
 **Example:**
 
-```csv
+```text
 seq,modifications,charge,CCS
 VVDDFADITTPLK,,2,422.9984309464991
 GVEVLSLTPSFMDIPEK,12|Oxidation,2,464.6568644356109

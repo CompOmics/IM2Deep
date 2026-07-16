@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-07-16
+
+### Added
+- Sphinx documentation integration with CHANGELOG.md included in docs
+
+### Changed
+- Updated code examples in docstrings and documentation to reflect current API
+- Optimized PSM list filtering to use shallow copy instead of full deepcopy for better memory efficiency on large datasets
+
+### Fixed
+- CLI argument passing to `predict` function when calibration data is not provided
+
 ## [2.0.1] - 2026-07-15
 
 ### Fixed
