@@ -280,7 +280,7 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
     if needs_target:
         # Check if PSMs have either ion_mobility or CCS
         all_has_targets = all(
-            psm.ion_mobility is not None or psm.metadata.get("CCS") is not None
+            psm.ion_mobility is not None or (psm.metadata or {}).get("CCS") is not None
             for psm in psm_list_filtered
         )
 
@@ -290,13 +290,19 @@ def validate_psm_list(psm_list: PSMList, needs_target: bool = False) -> PSMList:
             if psm.metadata is None:
                 psm.metadata = {}
 
-            if psm.ion_mobility is not None:
+            theoretical_mz = psm.peptidoform.theoretical_mz
+            precursor_charge = psm.peptidoform.precursor_charge
+            if (
+                psm.ion_mobility is not None
+                and theoretical_mz is not None
+                and precursor_charge is not None
+            ):
                 if "CCS" not in psm.metadata:
                     psm.metadata["CCS"] = _normalize_ccs_metadata_value(
                         im2ccs(
                             psm.ion_mobility,
-                            psm.peptidoform.theoretical_mz,
-                            psm.peptidoform.precursor_charge,
+                            theoretical_mz,
+                            precursor_charge,
                         )
                     )
             elif psm.metadata.get("CCS") is not None:
