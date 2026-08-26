@@ -13,7 +13,7 @@ from im2deep._architectures.blocks import Conv1dActivation, DenseActivation
 from im2deep._architectures.helpers import calculate_concat_shape
 from im2deep._architectures.im2deep_single import IM2Deep
 from im2deep._architectures.losses import LowestMAESorted, MeanMAESorted
-from im2deep.constants import BASEMODELCONFIG
+from im2deep.constants import BASEMODELCONFIG, DEFAULT_GLOBAL_FEATURES
 
 LOGGER = logging.getLogger(__name__)
 PACKAGE_DATA_PATH = Path(__file__).parent / "package_data"
@@ -164,7 +164,10 @@ class IM2DeepMulti(L.LightningModule):
         self.ConvGlobal = nn.ModuleList()
         self.ConvGlobal.append(
             DenseActivation(
-                60,
+                # See the note in im2deep_single.IM2Deep: number of DeepLC
+                # global features, defaulting to what the bundled checkpoints
+                # were trained with.
+                self.config.get("Global_features", DEFAULT_GLOBAL_FEATURES),
                 self.config["Global_units"],
                 initializer=initi,
                 negative_slope=self.config["LRelu_negative_slope"],

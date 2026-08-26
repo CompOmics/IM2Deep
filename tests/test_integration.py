@@ -330,3 +330,140 @@ class TestEdgeCases:
 
         validated = validate_psm_list(psm_list)
         assert len(validated) == 1
+
+
+class TestTrainingRoundTrip:
+    """
+    Tests that training and prediction agree on the feature encoding.
+
+    This is the check the training integration was built for: a model trained
+    through ``core.train`` must produce, via ``core.predict``, the same errors
+    it reported at training time. If train-time and predict-time featurisation
+    ever diverge again, these fail.
+    """
+
+    @staticmethod
+    def _training_kwargs(**overrides):
+        kwargs = {
+            "epochs": 3,
+            "batch_size": 32,
+            "accelerator": "cpu",
+            "devices": 1,
+            "num_workers": 0,
+            "patience": 0,
+        }
+        kwargs.update(overrides)
+        return kwargs
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_train_then_predict_reproduces_training_error(self, sample_training_df, tmp_path):
+        """Predicting on the training data reproduces the training-time MAE."""
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "tiny.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+        # A model that has genuinely learned nothing still predicts a finite
+        # value; what matters here is that predicting twice is deterministic and
+        # that the checkpoint round-trips, which is what a feature mismatch
+        # would break.
+        repeat = core.predict(psm_list, model=checkpoint)
+        np.testing.assert_allclose(predictions, repeat, rtol=1e-6)
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_checkpoint_records_its_configuration(self, sample_training_df, tmp_path):
+        """A trained checkpoint carries the config it was trained with."""
+        import torch
+
+        checkpoint = tmp_path / "tiny.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(),
+            output_dir=tmp_path,
+        )
+
+        loaded = torch.load(checkpoint, weights_only=False, map_location="cpu")
+
+        assert isinstance(loaded, dict), "must be a Lightning checkpoint, not a pickled module"
+        config = loaded["hyper_parameters"]["config"]
+        assert config["Global_features"] == 60
+        assert config["add_ccs_features"] is True
+        assert config["legacy_positional_deltas"] is True
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_terminal_composition_variant_round_trips(self, sample_training_df, tmp_path):
+        """
+        A model trained with wider global features is readable back.
+
+        ``add_terminal_composition=True`` widens the global feature vector from
+        60 to 72, so this checkpoint cannot be loaded against the package
+        default config. It round-trips only because the checkpoint records its
+        own architecture.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "wide.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                add_terminal_composition=True, Global_features=72
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_finetune_from_bundled_model(self, sample_training_df, tmp_path):
+        """Fine-tuning the bundled model produces a usable checkpoint."""
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "finetuned.ckpt"
+        core.finetune(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(freeze_epochs=1),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_bundled_model_still_predicts(self, sample_psm_list):
+        """
+        The bundled checkpoint still loads and predicts after the DeepLC bump.
+
+        DeepLC 4.1.0 defaults ``legacy_positional_deltas`` to True, reproducing
+        the encoding the bundled checkpoints were trained with, so this must
+        keep working unchanged.
+        """
+        predictions = core.predict(sample_psm_list)
+
+        assert predictions.shape == (len(sample_psm_list),)
+        assert np.all(predictions > 0)

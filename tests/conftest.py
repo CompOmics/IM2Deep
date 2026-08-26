@@ -184,3 +184,46 @@ def sample_peprec_format_df():
             "charge": [2, 3, 2],
         }
     )
+
+
+@pytest.fixture
+def sample_training_df():
+    """
+    A small training set in the collated-dataset format.
+
+    Uses the lowercase ``ccs`` column the dataset-collation pipeline writes,
+    and repeats each sequence at two charge states so grouped splitting has
+    something to group.
+    """
+    rng = np.random.default_rng(0)
+    amino_acids = list("ACDEFGHIKLMNPQRSTVWY")
+    rows = []
+    for _ in range(60):
+        length = int(rng.integers(7, 20))
+        sequence = "".join(rng.choice(amino_acids, length))
+        for charge in (2, 3):
+            rows.append(
+                {
+                    "seq": sequence,
+                    "modifications": "",
+                    "charge": charge,
+                    # A crude but learnable relationship, so a few epochs of
+                    # training move the loss in the right direction.
+                    "ccs": 300.0 + 12.0 * length + 40.0 * charge,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+@pytest.fixture
+def sample_training_psm_list(sample_training_df):
+    """The same small training set as a PSMList carrying CCS metadata."""
+    psms = [
+        PSM(
+            peptidoform=Peptidoform(f"{row.seq}/{row.charge}"),
+            spectrum_id=str(idx),
+            metadata={"CCS": str(row.ccs)},
+        )
+        for idx, row in enumerate(sample_training_df.itertuples())
+    ]
+    return PSMList(psm_list=psms)

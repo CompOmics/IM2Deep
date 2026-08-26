@@ -20,7 +20,15 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "click>=8,<9",
-    "deeplc>=4.0.0b1,<5",
+    # 4.0.1 introduced a feature-encoding change (positional modification
+    # indexing) that shifts CCS for modified peptides by up to 7.6 A^2 for
+    # models trained pre-4.0.1, this package's checkpoints included. From
+    # 4.1.0 that change sits behind `legacy_positional_deltas`, which defaults
+    # to True, so 4.1.0's default encoding matches what the bundled
+    # checkpoints were trained on. Checkpoints written by `core.train()`
+    # record their own featurisation flags, so they are read back on whatever
+    # encoding they were trained with.
+    "deeplc>=4.1.0,<5",
     "psm_utils>=1.5.1,<2",
     "pandas>=1.5,<3",
     "numpy>=1.25,<3",
@@ -28,6 +36,11 @@ dependencies = [
     "torch>=2.6.0,<3",
     "lightning>=2.1,<3",
 ]
+
+[project.optional-dependencies]
+# Only needed to log training runs to Weights & Biases; `core.train()` works
+# without it and `_architectures/callbacks.py` soft-imports it.
+wandb = ["wandb"]
 
 [dependency-groups]
 dev = [
@@ -102,7 +115,7 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["deeplc.*", "torch.*", "im2deeptrainer.*", "psm_utils.*"]
+module = ["deeplc.*", "torch.*", "lightning.*", "wandb.*", "psm_utils.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

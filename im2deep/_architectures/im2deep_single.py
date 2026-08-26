@@ -9,6 +9,7 @@ from torch.optim import Adam  # type: ignore[import]
 
 from im2deep._architectures.blocks import Conv1dActivation, DenseActivation
 from im2deep._architectures.helpers import calculate_concat_shape
+from im2deep.constants import DEFAULT_GLOBAL_FEATURES
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,6 +20,11 @@ class IM2Deep(L.LightningModule):
         self.config = config
         self.criterion = criterion
         self.mae = nn.L1Loss()
+        # Record the config in the checkpoint so a model can be read back with
+        # the architecture and featurisation it was trained on. The bundled
+        # checkpoints predate this and carry no hyperparameters, which is why
+        # _model_ops still falls back to DEFAULT_CONFIG.
+        self.save_hyperparameters("config")
 
         initi = self.configure_init()
 
@@ -159,7 +165,11 @@ class IM2Deep(L.LightningModule):
         self.ConvGlobal = nn.ModuleList()
         self.ConvGlobal.append(
             DenseActivation(
-                60,
+                # Number of DeepLC global features, which depends on the
+                # featurisation flags. The default matches
+                # `add_ccs_features=True, add_terminal_composition=False`,
+                # i.e. what every bundled checkpoint was trained with.
+                self.config.get("Global_features", DEFAULT_GLOBAL_FEATURES),
                 self.config["Global_units"],
                 initializer=initi,
                 negative_slope=self.config["LRelu_negative_slope"],
@@ -485,6 +495,7 @@ class IM2DeepTransfer(L.LightningModule):
         self.criterion = criterion
         self.l1_alpha = config["L1_alpha"]
         self.mae = nn.L1Loss()
+        self.save_hyperparameters("config")
 
         # Load the IM2Deep model
         LOGGER.debug("Loading backbone IM2Deep model")
@@ -550,7 +561,7 @@ class IM2DeepTransfer(L.LightningModule):
     def training_step(self, batch, batch_idx):
         if self.config["add_X_mol"]:
             atom_comp, diatom_comp, global_feats, one_hot, y, mol_desc = batch
-            y_hat = self(atom_comp, diatom_comp, global_feats, one_hot, mol_desc)
+            y_hat = self(atom_comp, diatom_comp, global_feats, one_hot, mol_desc).squeeze(1)
         else:
             atom_comp, diatom_comp, global_feats, one_hot, y = batch
             y_hat = self(atom_comp, diatom_comp, global_feats, one_hot).squeeze(1)
@@ -576,7 +587,7 @@ class IM2DeepTransfer(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         if self.config["add_X_mol"]:
             atom_comp, diatom_comp, global_feats, one_hot, y, mol_desc = batch
-            y_hat = self(atom_comp, diatom_comp, global_feats, one_hot, mol_desc)
+            y_hat = self(atom_comp, diatom_comp, global_feats, one_hot, mol_desc).squeeze(1)
         else:
             atom_comp, diatom_comp, global_feats, one_hot, y = batch
             y_hat = self(atom_comp, diatom_comp, global_feats, one_hot).squeeze(1)
@@ -597,7 +608,7 @@ class IM2DeepTransfer(L.LightningModule):
     def test_step(self, batch, batch_idx):
         if self.config["add_X_mol"]:
             atom_comp, diatom_comp, global_feats, one_hot, y, mol_desc = batch
-            y_hat = self(atom_comp, diatom_comp, global_feats, one_hot, mol_desc)
+            y_hat = self(atom_comp, diatom_comp, global_feats, one_hot, mol_desc).squeeze(1)
         else:
             atom_comp, diatom_comp, global_feats, one_hot, y = batch
             y_hat = self(atom_comp, diatom_comp, global_feats, one_hot).squeeze(1)

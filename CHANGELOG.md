@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `core.train()` and `core.finetune()`, replacing the `NotImplementedError` stub that
+  pointed at the separate `im2deeptrainer` package. Both featurise through
+  `DeepLCDataset`, the same path `predict()` uses, so a trained checkpoint is directly
+  usable for prediction
+- `im2deep train` and `im2deep finetune` CLI commands
+- New `_data` module with `CCSDataset` (flattens DeepLC's nested feature tuple for
+  training), `build_training_dataset` (accepts a PSMList, DataFrame or delimited file,
+  and reads the target from `CCS` or `ccs`) and `grouped_split` (train/validation split
+  grouped by stripped sequence, so a peptide cannot appear in both halves)
+- `DEFAULT_TRAINING_CONFIG` with the training-loop and featurisation keys, leaving
+  `DEFAULT_CONFIG` untouched
+- `Global_features` configuration key, making the architectures' global branch width
+  configurable so featurisations other than the default 60 can be trained. Defaults to
+  60, so existing checkpoints and configurations are unaffected
+- `BackboneFreeze` callback, freezing a transfer model's pretrained feature branches for
+  a warmup before unfreezing at a reduced learning rate
+- Trained checkpoints now record their own configuration, so a model is read back with
+  the architecture and featurisation it was trained on
+- Weights & Biases logging, off by default. Runs are named after `model_name` (or an
+  explicit `wandb.name`) and carry the full training config, so a set of runs differing
+  only in training data or featurisation is comparable. `--wandb`, `--wandb-project` and
+  `--wandb-name` on both CLI commands; `entity` and `tags` are settable from a config
+  file
+
+### Changed
+- Widened the `deeplc` dependency to `>=4.1.0,<5`. From 4.1.0 the 4.0.1 feature-encoding
+  change sits behind `legacy_positional_deltas`, which defaults to `True`, so the
+  encoding matches what the bundled checkpoints were trained with. Verified
+  bit-identical to 4.0.0 across 4,000 peptidoforms, 3,000 of them modified
+- `predict()` now selects the architecture and featurisation from the checkpoint rather
+  than assuming the package defaults, so fine-tuned models and models trained with
+  other featurisations load correctly
+- `wandb` is now an optional extra (`pip install im2deep[wandb]`) rather than an
+  undeclared import
+
+### Fixed
+- `IM2DeepTransfer`'s training, validation and test steps did not squeeze the model
+  output in the `add_X_mol` branch, so the loss broadcast to a `(batch, batch)` matrix
+  instead of comparing element-wise
+
 ## [2.0.2] - 2026-07-16
 
 ### Added
