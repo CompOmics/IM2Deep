@@ -92,9 +92,10 @@ class RelativePairBias(nn.Module):
 
         positions = torch.arange(seq_len, device=device)
         relative_distance = positions.unsqueeze(0) - positions.unsqueeze(1)  # (L, L), [i,j] = i-j
-        relative_idx = relative_distance.clamp(
-            -self.max_relative_distance, self.max_relative_distance
-        ) + self.max_relative_distance
+        relative_idx = (
+            relative_distance.clamp(-self.max_relative_distance, self.max_relative_distance)
+            + self.max_relative_distance
+        )
         relative_bias = self.relative(relative_idx)  # (L, L, num_heads)
 
         if cacheable:
@@ -149,7 +150,9 @@ def _fold_padding_into_bias(bias: Tensor, key_padding_mask: Tensor) -> Tensor:
     return combined.reshape(batch * heads, seq_q, seq_k)
 
 
-def _sdpa_attention(mha: nn.MultiheadAttention, query: Tensor, key: Tensor, value: Tensor, attn_mask: Tensor) -> Tensor:
+def _sdpa_attention(
+    mha: nn.MultiheadAttention, query: Tensor, key: Tensor, value: Tensor, attn_mask: Tensor
+) -> Tensor:
     """
     Equivalent to ``mha(query, key, value, attn_mask=attn_mask, need_weights=False)[0]``
     for how ``mha`` is always constructed in this module - ``batch_first=True``,
@@ -311,7 +314,9 @@ class PerceiverReadout(nn.Module):
         else:
             # See PreNormTransformerBlock.forward and _sdpa_attention for why
             # this bypasses nn.MultiheadAttention.forward entirely.
-            out = _sdpa_attention(self.cross_attn, query, residue_hidden, residue_hidden, attn_mask)
+            out = _sdpa_attention(
+                self.cross_attn, query, residue_hidden, residue_hidden, attn_mask
+            )
         pooled = out.squeeze(1) if self.num_queries == 1 else out
         if return_attention:
             return pooled, attn_weights
@@ -380,9 +385,7 @@ class TransformerTrunk(nn.Module):
         charge_token = self.charge_embed(charge_idx).unsqueeze(1)  # (batch, 1, d_model)
         hidden = torch.cat([charge_token, tokens], dim=1)  # (batch, seq_len+1, d_model)
 
-        register_valid = torch.zeros(
-            batch_size, 1, dtype=torch.bool, device=padding_mask.device
-        )
+        register_valid = torch.zeros(batch_size, 1, dtype=torch.bool, device=padding_mask.device)
         key_padding_mask = torch.cat([register_valid, padding_mask], dim=1)  # (batch, seq_len+1)
 
         real_lengths = (~padding_mask).sum(dim=1)  # (batch,)

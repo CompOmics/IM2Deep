@@ -537,7 +537,9 @@ def train(
         # them: reloading it here would silently throw the averaging away.
         # `model` already holds the averaged weights post-fit, so use it
         # as-is instead of reloading anything.
-        LOGGER.info("SWA enabled: using the final weight-averaged model, not a reloaded checkpoint.")
+        LOGGER.info(
+            "SWA enabled: using the final weight-averaged model, not a reloaded checkpoint."
+        )
     elif checkpoint_callback is not None and checkpoint_callback.best_model_path:
         best_checkpoint_path = checkpoint_callback.best_model_path
         LOGGER.info(f"Reloading best checkpoint: {best_checkpoint_path}")
