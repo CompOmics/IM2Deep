@@ -305,7 +305,7 @@ def build_training_dataset(
     # resident memory roughly 36x lower and avoids each DataLoader worker
     # forking a large object graph.
     return CCSDataset(
-        peptidoforms=peptidoforms,  # type: ignore[arg-type]
+        peptidoforms=peptidoforms,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         target_retention_times=targets,
         **featurisation,
     )

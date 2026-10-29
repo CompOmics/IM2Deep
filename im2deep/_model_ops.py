@@ -113,7 +113,7 @@ def _load_model_for_inference(
     guessing - without duplicating this block.
     """
     loaded_model = read_checkpoint_architecture(model, multi=multi).load_from_checkpoint(
-        checkpoint_path=model,  # type: ignore # TODO: Match with function signature
+        checkpoint_path=model,  # TODO: Match with function signature
         config=read_checkpoint_config(model, multi=multi),
         criterion=_get_loss_function(multi=multi),
         strict=False,
@@ -218,17 +218,17 @@ def _predict_loop(
 def _training_targets(dataset: Dataset) -> torch.Tensor:
     """The raw CCS target array for a training dataset, unwrapping a ``Subset`` if needed."""
     if isinstance(dataset, Subset):
-        targets = dataset.dataset.target_retention_times[dataset.indices]
+        targets = dataset.dataset.target_retention_times[dataset.indices]  # ty: ignore[unresolved-attribute]
     else:
-        targets = dataset.target_retention_times
+        targets = dataset.target_retention_times  # ty: ignore[unresolved-attribute]
     return torch.as_tensor(targets, dtype=torch.float32)
 
 
 def _training_peptidoforms(dataset: Dataset) -> list[str]:
     """The ProForma strings for a training dataset, unwrapping a ``Subset`` if needed."""
     if isinstance(dataset, Subset):
-        return [dataset.dataset.peptidoforms[i] for i in dataset.indices]
-    return list(dataset.peptidoforms)
+        return [dataset.dataset.peptidoforms[i] for i in dataset.indices]  # ty: ignore[unresolved-attribute]
+    return list(dataset.peptidoforms)  # ty: ignore[unresolved-attribute]
 
 
 def _charge_balanced_weights(train_dataset: Dataset) -> torch.Tensor:
@@ -287,9 +287,9 @@ class _PairAugmentedDataset(Dataset):
         self.mz = mz
 
     def __len__(self) -> int:
-        return len(self.base)
+        return len(self.base)  # ty: ignore[invalid-argument-type]
 
-    def __getitem__(self, idx: int) -> tuple:
+    def __getitem__(self, idx: int) -> tuple:  # ty: ignore[invalid-method-override]
         item = self.base[idx]
         group_id = torch.as_tensor(self.group_ids[idx], dtype=torch.long)
         mz = torch.as_tensor(self.mz[idx], dtype=torch.float32)
@@ -375,9 +375,9 @@ def _fit_scalers(
             target_std = 1.0  # degenerate all-equal sample; std=0 would divide by zero
 
     if config.get("standardize_global_features"):
-        sample_size = min(len(train_dataset), 50_000)
+        sample_size = min(len(train_dataset), 50_000)  # ty: ignore[invalid-argument-type]
         generator = torch.Generator().manual_seed(0)
-        idx = torch.randperm(len(train_dataset), generator=generator)[:sample_size].tolist()
+        idx = torch.randperm(len(train_dataset), generator=generator)[:sample_size].tolist()  # ty: ignore[invalid-argument-type]
         loader = DataLoader(
             Subset(train_dataset, idx),
             batch_size=2048,
@@ -442,12 +442,12 @@ def train(
         global_mean, global_std, target_mean, target_std = _fit_scalers(train_dataset, config)
         if global_mean is not None:
             LOGGER.info("Fitted global-feature standardisation from a training sample.")
-            model.set_global_feature_scaler(global_mean, global_std)
+            model.set_global_feature_scaler(global_mean, global_std)  # ty: ignore[call-non-callable]
         if target_mean is not None:
             LOGGER.info(
                 f"Fitted target standardisation: mean={target_mean:.2f}, std={target_std:.2f}."
             )
-            model.set_target_scaler(target_mean, target_std)
+            model.set_target_scaler(target_mean, target_std)  # ty: ignore[call-non-callable]
     LOGGER.debug(f"Training {type(model).__name__}")
 
     # Step 8.3: the sibling delta and ranking losses need each row's sibling-
@@ -484,7 +484,7 @@ def train(
                 group_ids=group_ids,
                 batch_size=config["batch_size"],
                 pairs_per_batch=config.get("sibling_pairs_per_batch", 64),
-                num_batches=len(loader_dataset) // config["batch_size"],
+                num_batches=len(loader_dataset) // config["batch_size"],  # ty: ignore[invalid-argument-type]
             ),
             num_workers=config.get("num_workers", 0),
             persistent_workers=bool(config.get("num_workers", 0)),
@@ -494,7 +494,7 @@ def train(
         train_loader = DataLoader(
             loader_dataset,
             batch_size=config["batch_size"],
-            sampler=WeightedRandomSampler(weights, num_samples=len(weights), replacement=True),
+            sampler=WeightedRandomSampler(weights, num_samples=len(weights), replacement=True),  # ty: ignore[invalid-argument-type]
             num_workers=config.get("num_workers", 0),
             persistent_workers=bool(config.get("num_workers", 0)),
         )
@@ -525,7 +525,7 @@ def train(
         enable_progress_bar=True,
         precision=config.get("precision", "32-true"),
     )
-    trainer.fit(model, train_loader, validation_loader)
+    trainer.fit(model, train_loader, validation_loader)  # ty: ignore[invalid-argument-type]
 
     best_checkpoint_path = None
     if config.get("swa"):
@@ -543,11 +543,11 @@ def train(
     elif checkpoint_callback is not None and checkpoint_callback.best_model_path:
         best_checkpoint_path = checkpoint_callback.best_model_path
         LOGGER.info(f"Reloading best checkpoint: {best_checkpoint_path}")
-        model = type(model).load_from_checkpoint(
+        model = type(model).load_from_checkpoint(  # ty: ignore[unresolved-attribute]
             best_checkpoint_path, config=config, criterion=criterion
         )
 
-    return trainer, model, best_checkpoint_path
+    return trainer, model, best_checkpoint_path  # ty: ignore[invalid-return-type]
 
 
 def _build_model(config: dict, criterion: torch.nn.Module) -> torch.nn.Module:
@@ -622,7 +622,7 @@ def _setup_logger(config: dict, model: torch.nn.Module, output_dir: Path | None 
         return None
 
     try:
-        import wandb  # noqa: F401
+        import wandb  # noqa: F401  # ty: ignore[unresolved-import]
         from lightning.pytorch.loggers import WandbLogger
     except ImportError as exc:
         raise ImportError(
@@ -635,7 +635,7 @@ def _setup_logger(config: dict, model: torch.nn.Module, output_dir: Path | None 
         name=wandb_config.get("name") or config.get("model_name"),
         entity=wandb_config.get("entity"),
         tags=wandb_config.get("tags"),
-        save_dir=str(output_dir) if output_dir is not None else None,
+        save_dir=str(output_dir) if output_dir is not None else None,  # ty: ignore[invalid-argument-type]
     )
     # Log the training config so runs can be told apart and compared later.
     logger.log_hyperparams({key: value for key, value in config.items() if key != "wandb"})

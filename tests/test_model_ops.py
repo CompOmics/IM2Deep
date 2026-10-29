@@ -391,6 +391,7 @@ class TestWandbLogger:
 
     def test_run_is_named_after_the_model(self):
         """Runs are named so a set of variants is distinguishable."""
+        pytest.importorskip("wandb")
         config = {
             "wandb": {"enabled": True, "project_name": "proj"},
             "model_name": "shift-variant",
@@ -405,6 +406,7 @@ class TestWandbLogger:
 
     def test_explicit_run_name_wins(self):
         """An explicit run name overrides the model name."""
+        pytest.importorskip("wandb")
         config = {
             "wandb": {"enabled": True, "name": "explicit"},
             "model_name": "shift-variant",
@@ -417,6 +419,7 @@ class TestWandbLogger:
 
     def test_config_is_logged_without_the_wandb_block(self):
         """The training config is recorded with the run, so runs compare."""
+        pytest.importorskip("wandb")
         config = {
             "wandb": {"enabled": True, "project_name": "proj"},
             "model_name": "m",

@@ -648,7 +648,7 @@ class RegressionCCSCalibration(Calibration):
 
         if self.per_charge:
             for charge, group in merged.groupby("charge"):
-                charge_int = int(charge)
+                charge_int = int(cast(int, charge))
                 self.charge_n_anchors[charge_int] = len(group)
                 if len(group) < MIN_OVERLAP_PER_CHARGE:
                     LOGGER.debug(

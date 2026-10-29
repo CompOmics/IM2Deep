@@ -400,7 +400,7 @@ class TransformerTrunk(nn.Module):
         for block in self.blocks:
             if return_attention:
                 hidden, attn_weights = block(hidden, attn_mask=attn_mask, return_attention=True)
-                self_attn_weights.append(attn_weights)
+                self_attn_weights.append(attn_weights)  # ty: ignore[unresolved-attribute]
             else:
                 hidden = block(hidden, attn_mask=attn_mask)
         hidden = self.final_norm(hidden)

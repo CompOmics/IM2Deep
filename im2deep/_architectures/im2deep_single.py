@@ -460,13 +460,13 @@ class IM2Deep(L.LightningModule):
 
     def set_global_feature_scaler(self, mean: Tensor, std: Tensor) -> None:
         """Set the global-feature standardisation buffers from a fitted sample."""
-        self.global_feat_mean.copy_(mean)
-        self.global_feat_std.copy_(std)
+        self.global_feat_mean.copy_(mean)  # ty: ignore[call-non-callable]
+        self.global_feat_std.copy_(std)  # ty: ignore[call-non-callable]
 
     def set_target_scaler(self, mean: float, std: float) -> None:
         """Set the target standardisation buffers from the training target distribution."""
-        self.target_mean.fill_(mean)
-        self.target_std.fill_(std)
+        self.target_mean.fill_(mean)  # ty: ignore[call-non-callable]
+        self.target_std.fill_(std)  # ty: ignore[call-non-callable]
 
     def _base_loss(self, y_hat, y):
         """
@@ -495,7 +495,7 @@ class IM2Deep(L.LightningModule):
 
     def _pair_mask(self, same: Tensor) -> tuple[Tensor, Tensor]:
         """Row indices of each unique unordered pair where ``same`` holds."""
-        return torch.triu(same, diagonal=1).nonzero(as_tuple=True)
+        return torch.triu(same, diagonal=1).nonzero(as_tuple=True)  # ty: ignore[invalid-return-type]
 
     def _sibling_delta_loss(self, y_hat: Tensor, y: Tensor, group_id: Tensor) -> Tensor:
         """
@@ -683,15 +683,15 @@ class IM2Deep(L.LightningModule):
 
         if self.use_heteroscedastic_head:
             mu_std, log_b_std = concatenated[:, 0], concatenated[:, 1]
-            mu = mu_std * self.target_std + self.target_mean
-            b = torch.exp(log_b_std.clamp(-LOG_B_CLAMP, LOG_B_CLAMP)) * self.target_std
+            mu = mu_std * self.target_std + self.target_mean  # ty: ignore[unsupported-operator]
+            b = torch.exp(log_b_std.clamp(-LOG_B_CLAMP, LOG_B_CLAMP)) * self.target_std  # ty: ignore[unsupported-operator]
             b = b.clamp(min=1e-3)
             if return_attention:
                 return mu, b, attention
             return mu, b
 
         # De-standardise back to raw CCS.
-        output = concatenated * self.target_std + self.target_mean
+        output = concatenated * self.target_std + self.target_mean  # ty: ignore[unsupported-operator]
         if return_attention:
             return output, attention
         return output
@@ -780,7 +780,7 @@ class IM2Deep(L.LightningModule):
 
         if self.use_heteroscedastic_head:
             l1_norm = sum(torch.norm(p, 1) for p in self.parameters())
-            loss = self._point_estimate_loss(y_hat, y, b) + self.config["L1_alpha"] * l1_norm
+            loss = self._point_estimate_loss(y_hat, y, b) + self.config["L1_alpha"] * l1_norm  # ty: ignore[invalid-argument-type]
         else:
             loss = self.regularized_loss(y_hat, y)
         if self.config.get("sibling_loss_weight", 0.0) > 0:
@@ -809,7 +809,7 @@ class IM2Deep(L.LightningModule):
             atom_comp, diatom_comp, global_feats, one_hot, mol_desc
         )
         loss = (
-            self._point_estimate_loss(y_hat, y, b)
+            self._point_estimate_loss(y_hat, y, b)  # ty: ignore[invalid-argument-type]
             if self.use_heteroscedastic_head
             else self._base_loss(y_hat, y)
         )
@@ -835,7 +835,7 @@ class IM2Deep(L.LightningModule):
             atom_comp, diatom_comp, global_feats, one_hot, mol_desc
         )
         loss = (
-            self._point_estimate_loss(y_hat, y, b)
+            self._point_estimate_loss(y_hat, y, b)  # ty: ignore[invalid-argument-type]
             if self.use_heteroscedastic_head
             else self._base_loss(y_hat, y)
         )
@@ -875,7 +875,7 @@ class IM2Deep(L.LightningModule):
             scheduler = OneCycleLR(
                 optimizer,
                 max_lr=self.config["learning_rate"],
-                total_steps=self.trainer.estimated_stepping_batches,
+                total_steps=self.trainer.estimated_stepping_batches,  # ty: ignore[invalid-argument-type]
             )
             return {
                 "optimizer": optimizer,

@@ -208,7 +208,7 @@ def _resolve_config(
     if config is not None:
         if isinstance(config, (str, Path, PathLike)):
             LOGGER.info(f"Reading training configuration from {config}")
-            with open(config) as config_file:
+            with open(config) as config_file:  # ty: ignore[invalid-argument-type]
                 config = json.load(config_file)
         if not isinstance(config, dict):
             raise TypeError(f"config must be a dict or a path, got {type(config).__name__}.")
@@ -309,7 +309,7 @@ def train(
         )
 
     LOGGER.info("Training IM2Deep model...")
-    trainer, model, best_checkpoint_path = _model_ops.train(
+    trainer, model, best_checkpoint_path = _model_ops.train(  # ty: ignore[invalid-assignment]
         train_dataset=train_subset,
         validation_dataset=validation_subset,
         config=resolved_config,
