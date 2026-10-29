@@ -119,6 +119,7 @@ IPQEKCILQTDVK,5|Butyryl|6|Carbamidomethyl,3,516.2079366048176
 ## Important Notes
 
 - **Calibration**: Highly recommended for accurate predictions. Calibration corrects for systematic differences between predicted and observed CCS values.
+- **Calibration reference**: The shift is fitted against a bundled reference dataset, which is on the CCS scale of the bundled model. Calibrating a different model (for example one you trained) against it is only valid if that model predicts on the same scale, otherwise pass a reference built from that model's own training data. Peptidoforms are matched on their ProForma string, and the reference writes modifications as UNIMOD accessions (e.g. `[UNIMOD:4]`). Peptides written with modification names (e.g. `[Carbamidomethyl]`, as peprec-style input is read) therefore only match the reference when unmodified.
 - **Charge states**: IM2Deep predictions are reliable for charge states up to z=6. PSMs with higher charge states are automatically filtered out during validation.
 
 ## Citing
