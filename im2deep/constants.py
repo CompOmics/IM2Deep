@@ -7,8 +7,11 @@ DEFAULT_MULTI_MODEL_NAME = "IM2DeepMulti.ckpt"
 DEFAULT_MULTI_MODEL = (
     Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MULTI_MODEL_NAME
 )
+# Calibration reference for the default model: its CCS values sit on that model's scale,
+# which is what the per-charge shift needs. The two are replaced together, so a new default
+# model means a new reference file.
 DEFAULT_REFERENCE_DATASET_PATH = (
-    Path(__file__).resolve().parent / "reference_data" / "reference_ccs.csv.gz"
+    Path(__file__).resolve().parent / "reference_data" / "reference_ccs_2026.csv.gz"
 )
 DEFAULT_MULTI_REFERENCE_DATASET_PATH = (
     Path(__file__).parent / "reference_data" / "multi_reference_ccs.csv.gz"

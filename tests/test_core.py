@@ -379,12 +379,13 @@ class TestFinetune:
     def test_backbone_architecture_is_carried_across(
         self, mock_train, sample_training_df, tmp_path
     ):
-        """The transfer model inherits the backbone's architecture width."""
+        """The transfer model inherits the bundled backbone's architecture."""
         core.finetune(sample_training_df, tmp_path / "model.ckpt")
 
         config = mock_train.call_args.kwargs["config"]
-        assert config["Global_units"] == 16
-        assert config["Concat_units"] == 128
+        assert config["Global_units"] == 32
+        assert config["Concat_units"] == 192
+        assert config["use_transformer_trunk"] is True
 
 
 class TestWandbConfig:

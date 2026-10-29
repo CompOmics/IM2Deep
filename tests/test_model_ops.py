@@ -312,13 +312,23 @@ class TestGetLossFunction:
 class TestCheckpointInspection:
     """Tests for reading a checkpoint's own configuration and architecture."""
 
-    def test_bundled_checkpoint_falls_back_to_default_config(self):
-        """The bundled checkpoints record no config, so defaults apply."""
+    def test_checkpoint_without_a_config_falls_back_to_default_config(self, tmp_path):
+        """A checkpoint that records no config (as the multi-conformer ones) gets the defaults."""
+        from im2deep.constants import DEFAULT_CONFIG
+
+        checkpoint_path = tmp_path / "unrecorded.ckpt"
+        torch.save({"state_dict": {}}, checkpoint_path)
+
+        assert _model_ops.read_checkpoint_config(checkpoint_path) == DEFAULT_CONFIG
+
+    def test_bundled_checkpoint_records_its_own_config(self):
+        """The bundled single-conformer model is read back with the config it was trained with."""
         from im2deep.constants import DEFAULT_CONFIG, DEFAULT_MODEL
 
         config = _model_ops.read_checkpoint_config(DEFAULT_MODEL)
 
-        assert config == DEFAULT_CONFIG
+        assert config != DEFAULT_CONFIG
+        assert config["use_transformer_trunk"] is True
 
     def test_bundled_checkpoint_is_not_a_transfer_model(self):
         """The bundled single-conformer checkpoint loads as plain IM2Deep."""

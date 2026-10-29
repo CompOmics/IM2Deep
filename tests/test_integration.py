@@ -755,13 +755,41 @@ class TestTrainingRoundTrip:
 
     @pytest.mark.integration
     @pytest.mark.slow
+    def test_finetune_from_the_bundled_model(self, sample_training_df, tmp_path):
+        """
+        ``finetune`` with no ``--backbone`` adapts the bundled transformer model.
+
+        A learning rate of 0 must reproduce the bundled model's predictions: the
+        transfer model applies the backbone's trunk, charge register token and
+        both standardisation scalers, and training neither refits nor reloads them.
+        """
+        from im2deep._io_helpers import parse_input
+
+        finetuned = tmp_path / "finetuned.ckpt"
+        core.finetune(
+            sample_training_df,
+            finetuned,
+            training_kwargs=self._training_kwargs(
+                epochs=1, freeze_epochs=0, learning_rate=0.0, L1_alpha=0.0, swa=False
+            ),
+            output_dir=tmp_path / "finetune",
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        before = core.predict(psm_list)
+        after = core.predict(psm_list, model=finetuned)
+
+        assert np.allclose(after, before, atol=1e-3)
+
+    @pytest.mark.integration
+    @pytest.mark.slow
     def test_bundled_model_still_predicts(self, sample_psm_list):
         """
-        The bundled checkpoint still loads and predicts after the DeepLC bump.
+        The bundled checkpoint loads and predicts.
 
-        DeepLC 4.1.0 defaults ``legacy_positional_deltas`` to True, reproducing
-        the encoding the bundled checkpoints were trained with, so this must
-        keep working unchanged.
+        It records its own architecture and featurisation (transformer trunk, 72
+        global features, DeepLC's corrected positional deltas), which ``predict``
+        reads back rather than assuming the package defaults.
         """
         predictions = core.predict(sample_psm_list)
 
