@@ -1,6 +1,7 @@
 """Architecture definition for the multi-conformer IM2Deep model."""
 
 import logging
+from functools import partial
 from pathlib import Path
 
 import lightning as L
@@ -493,11 +494,15 @@ class IM2DeepMulti(L.LightningModule):
 
     def configure_init(self):
         if (not self.config["init"]) or (self.config["init"] == "normal"):
-            return nn.init.normal_
+            return partial(nn.init.normal_, mean=0.0, std=0.05)
         if self.config["init"] == "xavier":
-            return nn.init.xavier_normal_
+            return partial(nn.init.xavier_normal_, gain=1.0)
         if self.config["init"] == "kaiming":
-            return nn.init.kaiming_normal_
+            return partial(
+                nn.init.kaiming_normal_,
+                a=self.config["LRelu_negative_slope"],
+                nonlinearity="leaky_relu",
+            )
 
 
 class IM2DeepMultiTransfer(L.LightningModule):

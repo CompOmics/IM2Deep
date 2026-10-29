@@ -14,7 +14,15 @@ LOGGER = logging.getLogger(__name__)
 #: Attributes of a transfer model that hold the pretrained feature branches.
 #: The concatenation head is deliberately excluded: it is what fine-tuning is
 #: meant to adapt.
-BACKBONE_BRANCHES = ("ConvAtomComp", "ConvDiatomComp", "ConvGlobal", "OneHot", "MolDesc")
+BACKBONE_BRANCHES = (
+    "ConvAtomComp",
+    "ConvDiatomComp",
+    "transformer_trunk",
+    "flex_trunk",
+    "ConvGlobal",
+    "OneHot",
+    "MolDesc",
+)
 
 
 class LogLowestMAE(L.Callback):
@@ -30,9 +38,12 @@ class LogLowestMAE(L.Callback):
             currentMAE = trainer.callback_metrics["Val Mean MAE"]
         if currentMAE < self.bestMAE:
             self.bestMAE = currentMAE
-        if self.config["wandb"]["enabled"]:
-            if wandb is not None:
-                wandb.log({"Best Val MAE": self.bestMAE})
+        if self.config["wandb"]["enabled"] and wandb is not None and trainer.is_global_zero:
+            # wandb.init() is only ever called on the rank-zero process (see
+            # WandbLogger / _model_ops._setup_logger); under DDP with >1
+            # device, every rank runs this hook, and a non-zero rank calling
+            # wandb.log() without a prior wandb.init() raises.
+            wandb.log({"Best Val MAE": self.bestMAE})
 
 
 class BackboneFreeze(L.Callback):

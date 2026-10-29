@@ -1,11 +1,15 @@
 """Tests for model operations module."""
 
+from collections import Counter
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import torch
 
 from im2deep import _model_ops
+from im2deep._data import build_training_dataset
+from im2deep.constants import DEFAULT_TRAINING_CONFIG
 
 
 class TestLoadModel:
@@ -178,13 +182,18 @@ class TestPredictLoop:
             assert isinstance(predictions, torch.Tensor)
 
     def test_predict_loop_multi_output(self):
-        """Test prediction loop with multi-output model."""
+        """Test prediction loop with multi-output model (e.g. IM2DeepMulti)."""
         # Create mock model that returns tuple
         model = MagicMock()
         model.eval.return_value = None
+        # A MagicMock auto-vivifies any unset attribute (truthy by default),
+        # unlike a real IM2DeepMulti instance, which simply has no
+        # use_heteroscedastic_head attribute at all - set it explicitly so
+        # this mock matches that real behaviour (getattr(..., False)).
+        model.use_heteroscedastic_head = False
         model.return_value = (
-            torch.tensor([[450.0], [520.0]]),
-            torch.tensor([[452.0], [524.0]]),
+            torch.tensor([450.0, 520.0]),
+            torch.tensor([452.0, 524.0]),
         )
 
         mock_data = [
@@ -198,8 +207,35 @@ class TestPredictLoop:
                 device="cpu",
             )
 
-            assert isinstance(predictions, torch.Tensor)
-            # Should stack both outputs
+            # Both conformer predictions are stacked side by side, not one discarded.
+            assert predictions.shape == (2, 2)
+            assert torch.equal(predictions[:, 0], torch.tensor([450.0, 520.0]))
+            assert torch.equal(predictions[:, 1], torch.tensor([452.0, 524.0]))
+
+    def test_predict_loop_heteroscedastic_head_discards_b(self):
+        """Step 8.5: (mu, b) is a different kind of tuple than IM2DeepMulti's two
+        conformer predictions - only mu should reach the returned predictions."""
+        model = MagicMock()
+        model.eval.return_value = None
+        model.use_heteroscedastic_head = True
+        model.return_value = (
+            torch.tensor([450.0, 520.0]),  # mu
+            torch.tensor([12.0, 8.0]),  # b
+        )
+
+        mock_data = [
+            ([torch.randn(2, 10), torch.randn(2, 5)], torch.zeros(2)),
+        ]
+
+        with patch("im2deep._model_ops.track", return_value=mock_data):
+            predictions = _model_ops._predict_loop(
+                model=model,
+                data_loader=mock_data,  # type: ignore[unknown-arg]
+                device="cpu",
+            )
+
+            assert predictions.shape == (2,)
+            assert torch.equal(predictions, torch.tensor([450.0, 520.0]))
 
     def test_predict_loop_no_grad(self):
         """Test that prediction loop uses no_grad context."""
@@ -381,7 +417,234 @@ class TestWandbLogger:
         with patch("lightning.pytorch.loggers.WandbLogger") as mock_logger:
             _model_ops._setup_logger(config, MagicMock())
 
-        logged = mock_logger.return_value.experiment.config.update.call_args.args[0]
+        logged = mock_logger.return_value.log_hyperparams.call_args.args[0]
         assert logged["epochs"] == 3
         assert logged["Global_features"] == 72
         assert "wandb" not in logged
+
+
+class TestFitScalers:
+    """Tests for the standardisation fitting helper."""
+
+    def test_disabled_by_default(self, sample_training_df):
+        """Neither scaler is fit when both config flags are off."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+
+        result = _model_ops._fit_scalers(dataset, dict(DEFAULT_TRAINING_CONFIG))
+
+        assert result == (None, None, None, None)
+
+    def test_target_only(self, sample_training_df):
+        """Target mean/std are fit from the raw CCS distribution; global stays off."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        config = {**DEFAULT_TRAINING_CONFIG, "standardize_target": True}
+
+        global_mean, global_std, target_mean, target_std = _model_ops._fit_scalers(dataset, config)
+
+        expected = torch.as_tensor(dataset.target_retention_times, dtype=torch.float32)
+        assert global_mean is None and global_std is None
+        assert target_mean == pytest.approx(expected.mean().item(), rel=1e-4)
+        assert target_std == pytest.approx(expected.std().item(), rel=1e-4)
+
+    def test_global_features_only(self, sample_training_df):
+        """Global-feature mean/std are fit per feature; target stays off."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        config = {**DEFAULT_TRAINING_CONFIG, "standardize_global_features": True, "num_workers": 0}
+
+        global_mean, global_std, target_mean, target_std = _model_ops._fit_scalers(dataset, config)
+
+        assert target_mean is None and target_std is None
+        n_features = DEFAULT_TRAINING_CONFIG["Global_features"]
+        assert global_mean.shape == (n_features,)
+        assert global_std.shape == (n_features,)
+        assert (global_std > 0).all()  # constant columns are guarded to 1.0, never left at 0
+
+    def test_degenerate_target_std_guarded(self):
+        """All-equal targets would otherwise fit a std of 0 and divide by zero later."""
+
+        class _FakeDataset:
+            target_retention_times = [500.0, 500.0, 500.0]
+
+        _, _, target_mean, target_std = _model_ops._fit_scalers(
+            _FakeDataset(), {"standardize_target": True}
+        )
+
+        assert target_mean == pytest.approx(500.0)
+        assert target_std == 1.0
+
+
+class TestChargeBalancedWeights:
+    """Tests for the charge-balanced WeightedRandomSampler helper (step 8.3)."""
+
+    def test_weights_proportional_to_inverse_sqrt_charge_count(self, sample_training_df):
+        """sample_training_df repeats each of 60 sequences at charge 2 and charge 3: 60/60 split."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+
+        weights = _model_ops._charge_balanced_weights(dataset)
+
+        assert weights.shape == (len(dataset),)
+        # Equal charge counts (60 each) -> equal weights across the board.
+        assert torch.allclose(weights, weights[0] * torch.ones_like(weights))
+
+    def test_rare_charge_gets_a_larger_weight(self):
+        """A charge seen once should get sqrt(n_common) times the weight of a common one."""
+
+        class _FakeDataset:
+            peptidoforms = ["ACDEFGHIK/2"] * 8 + ["ACDEFGHIK/5"] * 2 + ["ACDEFGHIK/6"] * 1
+
+        weights = _model_ops._charge_balanced_weights(_FakeDataset())
+
+        w_z2, w_z5, w_z6 = weights[0].item(), weights[8].item(), weights[10].item()
+        assert w_z6 > w_z5 > w_z2
+        assert w_z6 == pytest.approx(1.0)  # 1/sqrt(1)
+        assert w_z5 == pytest.approx(1 / (2**0.5))
+        assert w_z2 == pytest.approx(1 / (8**0.5))
+
+    def test_unwraps_a_subset(self, sample_training_df):
+        """A Subset (e.g. from grouped_split) is read correctly, not treated as the full dataset."""
+        from torch.utils.data import Subset
+
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        subset = Subset(dataset, [0, 1, 2])
+
+        weights = _model_ops._charge_balanced_weights(subset)
+
+        assert weights.shape == (3,)
+
+
+class TestComputePairIds:
+    """Step 8.3: per-row sibling-group id and theoretical m/z for the pairwise losses."""
+
+    def test_shapes_and_dtypes(self, sample_training_df):
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        peptidoforms = dataset.peptidoforms
+
+        group_ids, mz = _model_ops._compute_pair_ids(peptidoforms)
+
+        assert group_ids.shape == (len(peptidoforms),)
+        assert mz.shape == (len(peptidoforms),)
+        assert group_ids.dtype == np.int64
+        assert mz.dtype == np.float32
+
+    def test_every_row_has_exactly_one_sibling(self, sample_training_df):
+        """sample_training_df repeats each of 60 sequences at charge 2 and 3."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+
+        group_ids, _ = _model_ops._compute_pair_ids(dataset.peptidoforms)
+
+        counts = Counter(group_ids.tolist())
+        assert len(counts) == 60
+        assert set(counts.values()) == {2}
+
+    def test_charge_does_not_change_the_group_id(self, sample_training_df):
+        """Two charge states of the same sequence are still one sibling group."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+
+        group_ids, _ = _model_ops._compute_pair_ids(dataset.peptidoforms)
+
+        # dataset.peptidoforms interleaves (seq, z=2) then (seq, z=3) per the
+        # fixture's construction order.
+        assert group_ids[0] == group_ids[1]
+
+    def test_higher_charge_gives_a_smaller_mz_for_the_same_sequence(self, sample_training_df):
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+
+        _, mz = _model_ops._compute_pair_ids(dataset.peptidoforms)
+
+        assert mz[1] < mz[0]  # z=3 (index 1) vs z=2 (index 0) of the same sequence
+
+    def test_matches_psm_utils_directly(self, sample_training_df):
+        from psm_utils.peptidoform import Peptidoform
+
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+
+        _, mz = _model_ops._compute_pair_ids(dataset.peptidoforms)
+
+        expected = Peptidoform(dataset.peptidoforms[0]).theoretical_mz
+        assert mz[0] == pytest.approx(expected, rel=1e-5)
+
+
+class TestPairAugmentedDataset:
+    """Step 8.3: wraps a training dataset with per-row group_id/mz, unpacked in training_step."""
+
+    def test_appends_group_id_and_mz_after_the_existing_tuple(self, sample_training_df):
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        group_ids, mz = _model_ops._compute_pair_ids(dataset.peptidoforms)
+
+        wrapped = _model_ops._PairAugmentedDataset(dataset, group_ids, mz)
+        base_item = dataset[0]
+        wrapped_item = wrapped[0]
+
+        assert len(wrapped_item) == len(base_item) + 2
+        for original, returned in zip(base_item, wrapped_item[:-2], strict=True):
+            # The target (last element of base_item) is a plain numpy
+            # float32 from DeepLC's own DeepLCDataset, not a tensor.
+            if isinstance(original, torch.Tensor):
+                assert torch.equal(original, returned)
+            else:
+                assert original == pytest.approx(returned)
+        assert wrapped_item[-2].item() == group_ids[0]
+        assert wrapped_item[-1].item() == pytest.approx(mz[0])
+
+    def test_length_matches_the_base_dataset(self, sample_training_df):
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        group_ids, mz = _model_ops._compute_pair_ids(dataset.peptidoforms)
+
+        wrapped = _model_ops._PairAugmentedDataset(dataset, group_ids, mz)
+
+        assert len(wrapped) == len(dataset)
+
+
+class TestSiblingPairBatchSampler:
+    """Step 8.3: deliberately places sibling pairs inside otherwise random batches."""
+
+    def test_raises_when_no_sibling_groups_exist(self):
+        group_ids = np.arange(100)  # every row its own group
+
+        with pytest.raises(_model_ops.IM2DeepError, match="no sibling groups"):
+            _model_ops.SiblingPairBatchSampler(
+                group_ids=group_ids, batch_size=16, pairs_per_batch=4, num_batches=5
+            )
+
+    def test_yields_the_configured_number_of_batches(self, sample_training_df):
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        group_ids, _ = _model_ops._compute_pair_ids(dataset.peptidoforms)
+        sampler = _model_ops.SiblingPairBatchSampler(
+            group_ids=group_ids, batch_size=16, pairs_per_batch=4, num_batches=3
+        )
+
+        batches = list(sampler)
+
+        assert len(batches) == 3
+        assert len(sampler) == 3
+        assert all(len(batch) == 16 for batch in batches)
+
+    def test_every_batch_contains_at_least_the_deliberately_placed_pairs(self, sample_training_df):
+        """Every group in this fixture has exactly one sibling, so every drawn pair is real."""
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        group_ids, _ = _model_ops._compute_pair_ids(dataset.peptidoforms)
+        sampler = _model_ops.SiblingPairBatchSampler(
+            group_ids=group_ids, batch_size=16, pairs_per_batch=4, num_batches=10
+        )
+
+        for batch in sampler:
+            groups_in_batch = Counter(int(group_ids[i]) for i in batch)
+            # Each of the 4 deliberately-placed pairs contributes 2 indices
+            # to some group that ends up with count>=2 in the batch - true
+            # even if two draws happen to land on the same group (that group
+            # then has count 4, not 2, but still counts all 4 slots here).
+            # Counting matched *slots* rather than matched *groups* avoids
+            # undercounting that coincidence, which plain groups>=2 counting
+            # does not.
+            matched_slots = sum(count for count in groups_in_batch.values() if count >= 2)
+            assert matched_slots >= 2 * 4
+
+    def test_indices_stay_within_range(self, sample_training_df):
+        dataset = build_training_dataset(sample_training_df, dict(DEFAULT_TRAINING_CONFIG))
+        group_ids, _ = _model_ops._compute_pair_ids(dataset.peptidoforms)
+        sampler = _model_ops.SiblingPairBatchSampler(
+            group_ids=group_ids, batch_size=16, pairs_per_batch=4, num_batches=5
+        )
+
+        for batch in sampler:
+            assert all(0 <= i < len(dataset) for i in batch)
