@@ -24,7 +24,7 @@ Example:
 
 from importlib.metadata import PackageNotFoundError, version
 
-from im2deep.core import predict, predict_and_calibrate
+from im2deep.core import finetune, predict, predict_and_calibrate, train
 from im2deep.utils import ccs2im, im2ccs
 
 try:
@@ -34,6 +34,8 @@ except PackageNotFoundError:
 __all__ = [
     "predict",
     "predict_and_calibrate",
+    "train",
+    "finetune",
     "ccs2im",
     "im2ccs",
 ]

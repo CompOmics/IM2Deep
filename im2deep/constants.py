@@ -71,6 +71,56 @@ DEFAULT_CONFIG = {
     "init": "normal",
 }
 
+# Number of global features DeepLC yields per featurisation flag combination.
+# `matrix_global` is 6 summed atom counts + sequence length + 48 flattened
+# positional-composition values = 55, plus 5 CCS features
+# (`add_ccs_features`) and/or 12 terminal-composition values
+# (`add_terminal_composition`). The architectures' global branch input width
+# must match, which is what `Global_features` in the config carries.
+GLOBAL_FEATURE_COUNTS = {
+    # (add_ccs_features, add_terminal_composition): n_global_features
+    (False, False): 55,
+    (True, False): 60,
+    (False, True): 67,
+    (True, True): 72,
+}
+
+# Default global-feature width, matching `add_ccs_features=True` and
+# `add_terminal_composition=False`, which is what every bundled checkpoint was
+# trained with.
+DEFAULT_GLOBAL_FEATURES = GLOBAL_FEATURE_COUNTS[(True, False)]
+
+# Default configuration for training. `DEFAULT_CONFIG` above describes the
+# bundled checkpoints' architecture and is deliberately left alone so they keep
+# loading unchanged; this adds the keys the training loop needs on top.
+DEFAULT_TRAINING_CONFIG = {
+    **DEFAULT_CONFIG,
+    "model_name": "IM2Deep",
+    # Training loop
+    "epochs": 100,
+    "patience": 10,
+    "use_best_model": True,
+    # "Validation MAE" is the metric name `LogLowestMAE` reads and the one the
+    # bundled IM2DeepUni.ckpt's own ModelCheckpoint monitored; changing it
+    # means changing both.
+    "monitor": "Validation MAE",
+    "mode": "min",
+    "num_workers": 0,
+    "accelerator": "auto",
+    "devices": "auto",
+    "wandb": {"enabled": False, "project_name": "IM2Deep"},
+    # Featurisation. These are recorded in the checkpoint so `predict()` reads
+    # a model back with the encoding it was trained on.
+    "add_ccs_features": True,
+    "add_terminal_composition": False,
+    # DeepLC 4.1.0 defaults this to True, reproducing the pre-4.0.1 positional
+    # modification indexing the bundled checkpoints were trained with. Set to
+    # False to train against the 4.0.1 fix instead.
+    "legacy_positional_deltas": True,
+    "padding_length": 60,
+    "Global_features": DEFAULT_GLOBAL_FEATURES,
+}
+
 BASEMODELCONFIG = {
     "AtomComp_kernel_size": 4,
     "DiatomComp_kernel_size": 4,

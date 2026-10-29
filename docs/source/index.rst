@@ -12,6 +12,15 @@
 
 
 .. toctree::
+   :caption: Guides
+   :hidden:
+   :includehidden:
+   :maxdepth: 2
+
+   Training <training>
+
+
+.. toctree::
    :caption: Command line interface
    :hidden:
    :includehidden:

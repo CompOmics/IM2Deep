@@ -240,48 +240,203 @@ def _run_predict(*args, **kwargs):
     LOGGER.info("IM2Deep finished.")
 
 
-# TODO: implement train command
-# @cli.command()
-# @click.argument("training_data", type=click.Path(exists=True, dir_okay=False))
-# @click.option(
-#     "-o",
-#     "--output-model",
-#     type=click.Path(dir_okay=False),
-#     required=True,
-#     help="Path to save the trained model.",
-# )
-# @click.option(
-#     "--epochs",
-#     type=int,
-#     default=100,
-#     help="Number of training epochs.",
-# )
-# @click.option(
-#     "-l",
-#     "--logging-level",
-#     type=click.Choice(["debug", "info", "warning", "error", "critical"], case_sensitive=False),
-#     default="info",
-#     help="Set logging verbosity level.",
-# )
-# def train(training_data, output_model, epochs, logging_level):
-#     """Train a new IM2Deep model.
+def _training_options(command):
+    """Apply the options shared by the ``train`` and ``finetune`` commands."""
+    options = [
+        click.argument("training_data", type=click.Path(exists=True, dir_okay=False)),
+        click.option(
+            "-o",
+            "--output-model",
+            type=click.Path(dir_okay=False),
+            required=True,
+            help="Path to save the trained model checkpoint.",
+        ),
+        click.option(
+            "-c",
+            "--config",
+            type=click.Path(exists=True, dir_okay=False),
+            default=None,
+            help="JSON configuration file with model and training parameters.",
+        ),
+        click.option("--epochs", type=int, default=None, help="Number of training epochs."),
+        click.option("--batch-size", type=int, default=None, help="Training batch size."),
+        click.option(
+            "--validation-data",
+            type=click.Path(exists=True, dir_okay=False),
+            default=None,
+            help="Explicit validation set. If omitted, one is split off the training data.",
+        ),
+        click.option(
+            "--validation-split",
+            type=float,
+            default=0.1,
+            help="Fraction held out for validation, grouped by stripped sequence.",
+        ),
+        click.option(
+            "--num-workers",
+            type=int,
+            default=None,
+            help="Dataloader worker processes used for featurisation.",
+        ),
+        click.option(
+            "--wandb/--no-wandb",
+            "use_wandb",
+            default=False,
+            help="Log the run to Weights & Biases (requires the 'wandb' extra).",
+        ),
+        click.option(
+            "--wandb-project",
+            default=None,
+            help="Weights & Biases project to log to. Implies --wandb.",
+        ),
+        click.option(
+            "--wandb-name",
+            default=None,
+            help="Weights & Biases run name. Defaults to the config's model_name. "
+            "Implies --wandb.",
+        ),
+        click.option(
+            "-l",
+            "--logging-level",
+            type=click.Choice(
+                ["debug", "info", "warning", "error", "critical"], case_sensitive=False
+            ),
+            default="info",
+            help="Set logging verbosity level.",
+        ),
+    ]
+    for option in reversed(options):
+        command = option(command)
+    return command
 
-#     Example: im2deep train training_data.csv -o my_model.ckpt
-#     """
-#     setup_logging(logging_level)
-#     LOGGER.info("Starting IM2Deep training...")
 
-#     # Parse training data
-#     psm_list_train = _parse_csv_input(training_data, "training")
+def _training_kwargs(
+    epochs, batch_size, num_workers, use_wandb, wandb_project=None, wandb_name=None
+) -> dict:
+    """
+    Collect the CLI overrides that were actually given.
 
-#     # Call training function
-#     core.train(
-#         psm_list=psm_list_train,
-#         model_save_path=output_model,
-#         training_kwargs={"epochs": epochs},
-#     )
+    Only keys the user actually set are returned, so unset flags do not
+    overwrite values from a configuration file. The ``wandb`` block is merged
+    rather than replaced by ``core._resolve_config``, for the same reason.
+    """
+    kwargs: dict = {}
+    if epochs is not None:
+        kwargs["epochs"] = epochs
+    if batch_size is not None:
+        kwargs["batch_size"] = batch_size
+    if num_workers is not None:
+        kwargs["num_workers"] = num_workers
 
-#     LOGGER.info(f"Training completed. Model saved to {output_model}")
+    # Naming a project or run is meaningless without logging, so either implies it.
+    wandb_config: dict = {}
+    if use_wandb or wandb_project or wandb_name:
+        wandb_config["enabled"] = True
+    if wandb_project:
+        wandb_config["project_name"] = wandb_project
+    if wandb_name:
+        wandb_config["name"] = wandb_name
+    if wandb_config:
+        kwargs["wandb"] = wandb_config
+
+    return kwargs
+
+
+@cli.command()
+@_training_options
+def train(
+    training_data,
+    output_model,
+    config,
+    epochs,
+    batch_size,
+    validation_data,
+    validation_split,
+    num_workers,
+    use_wandb,
+    wandb_project,
+    wandb_name,
+    logging_level,
+):
+    """Train a new IM2Deep model.
+
+    TRAINING_DATA is a delimited file with a CCS (or ccs) column plus either a
+    peptidoform column or seq, modifications and charge columns.
+
+    Example: im2deep train training_data.csv -o my_model.ckpt --epochs 100
+    """
+    setup_logging(logging_level)
+    LOGGER.info("Starting IM2Deep training...")
+
+    core.train(
+        psm_list=Path(training_data),
+        model_save_path=output_model,
+        training_kwargs=_training_kwargs(
+            epochs, batch_size, num_workers, use_wandb, wandb_project, wandb_name
+        ),
+        validation_psm_list=Path(validation_data) if validation_data else None,
+        validation_split=validation_split,
+        config=config,
+    )
+
+    LOGGER.info(f"Training completed. Model saved to {output_model}")
+
+
+@cli.command()
+@_training_options
+@click.option(
+    "-b",
+    "--backbone",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Backbone checkpoint to fine-tune. Defaults to the bundled IM2Deep model.",
+)
+@click.option(
+    "--freeze-epochs",
+    type=int,
+    default=None,
+    help="Epochs to keep the pretrained feature branches frozen before unfreezing.",
+)
+def finetune(
+    training_data,
+    output_model,
+    config,
+    epochs,
+    batch_size,
+    validation_data,
+    validation_split,
+    num_workers,
+    use_wandb,
+    wandb_project,
+    wandb_name,
+    logging_level,
+    backbone,
+    freeze_epochs,
+):
+    """Fine-tune an existing IM2Deep model on new data.
+
+    Example: im2deep finetune my_runs.csv -o finetuned.ckpt --freeze-epochs 5
+    """
+    setup_logging(logging_level)
+    LOGGER.info("Starting IM2Deep fine-tuning...")
+
+    training_kwargs = _training_kwargs(
+        epochs, batch_size, num_workers, use_wandb, wandb_project, wandb_name
+    )
+    if freeze_epochs is not None:
+        training_kwargs["freeze_epochs"] = freeze_epochs
+
+    core.finetune(
+        psm_list=Path(training_data),
+        model_save_path=output_model,
+        model=backbone,
+        training_kwargs=training_kwargs,
+        validation_psm_list=Path(validation_data) if validation_data else None,
+        validation_split=validation_split,
+        config=config,
+    )
+
+    LOGGER.info(f"Fine-tuning completed. Model saved to {output_model}")
 
 
 def _build_credits():

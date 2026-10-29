@@ -182,11 +182,30 @@ class TestCLI:
 
         assert result.exit_code in [0, 1]
 
-    def test_train_command_not_available(self, runner):
-        """Test that train command is not currently available."""
+    def test_train_command_available(self, runner):
+        """Test that the train command is registered."""
         result = runner.invoke(cli, ["train", "--help"])
-        # Train is commented out, so this should fail
-        assert result.exit_code != 0 or "train" not in result.output.lower()
+
+        assert result.exit_code == 0
+        assert "--output-model" in result.output
+        assert "--config" in result.output
+
+    def test_finetune_command_available(self, runner):
+        """Test that the finetune command is registered."""
+        result = runner.invoke(cli, ["finetune", "--help"])
+
+        assert result.exit_code == 0
+        assert "--backbone" in result.output
+        assert "--freeze-epochs" in result.output
+
+    def test_train_requires_output_model(self, runner, tmp_path):
+        """Test that train refuses to run without a destination."""
+        training_data = tmp_path / "train.csv"
+        training_data.write_text("seq,modifications,charge,ccs\nPEPTIDE,,2,400.0\n")
+
+        result = runner.invoke(cli, ["train", str(training_data)])
+
+        assert result.exit_code != 0
 
 
 class TestSetupLogging:

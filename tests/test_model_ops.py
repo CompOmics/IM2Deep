@@ -84,8 +84,8 @@ class TestLoadModel:
 class TestPredict:
     """Tests for predict function."""
 
-    @patch("im2deep._model_ops._get_architecture")
-    @patch("im2deep._model_ops._get_model_config")
+    @patch("im2deep._model_ops.read_checkpoint_architecture")
+    @patch("im2deep._model_ops.read_checkpoint_config")
     @patch("im2deep._model_ops._get_loss_function")
     def test_predict_single_output(self, mock_loss, mock_config, mock_arch, sample_psm_list):
         """Test prediction with single-output model."""
@@ -118,8 +118,8 @@ class TestPredict:
             assert isinstance(predictions, torch.Tensor)
             assert len(predictions) == 3
 
-    @patch("im2deep._model_ops._get_architecture")
-    @patch("im2deep._model_ops._get_model_config")
+    @patch("im2deep._model_ops.read_checkpoint_architecture")
+    @patch("im2deep._model_ops.read_checkpoint_config")
     @patch("im2deep._model_ops._get_loss_function")
     def test_predict_multi_output(self, mock_loss, mock_config, mock_arch):
         """Test prediction with multi-output model."""
@@ -271,3 +271,117 @@ class TestGetLossFunction:
         mock_loss.return_value = mock_instance
         loss = _model_ops._get_loss_function(multi=True)
         assert loss is mock_instance
+
+
+class TestCheckpointInspection:
+    """Tests for reading a checkpoint's own configuration and architecture."""
+
+    def test_bundled_checkpoint_falls_back_to_default_config(self):
+        """The bundled checkpoints record no config, so defaults apply."""
+        from im2deep.constants import DEFAULT_CONFIG, DEFAULT_MODEL
+
+        config = _model_ops.read_checkpoint_config(DEFAULT_MODEL)
+
+        assert config == DEFAULT_CONFIG
+
+    def test_bundled_checkpoint_is_not_a_transfer_model(self):
+        """The bundled single-conformer checkpoint loads as plain IM2Deep."""
+        from im2deep._architectures.im2deep_single import IM2Deep
+        from im2deep.constants import DEFAULT_MODEL
+
+        assert _model_ops.read_checkpoint_architecture(DEFAULT_MODEL) is IM2Deep
+
+    def test_recorded_config_is_preferred(self, tmp_path):
+        """A checkpoint that records a config is read back with it."""
+        checkpoint_path = tmp_path / "recorded.ckpt"
+        torch.save(
+            {"state_dict": {}, "hyper_parameters": {"config": {"Global_features": 72}}},
+            checkpoint_path,
+        )
+
+        config = _model_ops.read_checkpoint_config(checkpoint_path)
+
+        assert config["Global_features"] == 72
+
+    def test_transfer_checkpoint_detected_from_state_dict(self, tmp_path):
+        """A state_dict with backbone.* keys means a transfer model."""
+        from im2deep._architectures.im2deep_single import IM2DeepTransfer
+
+        checkpoint_path = tmp_path / "transfer.ckpt"
+        torch.save(
+            {"state_dict": {"backbone.ConvGlobal.0.linear.weight": torch.zeros(1)}},
+            checkpoint_path,
+        )
+
+        assert _model_ops.read_checkpoint_architecture(checkpoint_path) is IM2DeepTransfer
+
+    def test_non_checkpoint_falls_back_to_default(self):
+        """A model object rather than a path returns the package default."""
+        from im2deep.constants import DEFAULT_CONFIG
+
+        assert _model_ops.read_checkpoint_config(None) == DEFAULT_CONFIG
+
+    def test_missing_file_falls_back_to_default(self, tmp_path):
+        """An unreadable path does not raise here; loading reports it later."""
+        from im2deep.constants import DEFAULT_CONFIG
+
+        config = _model_ops.read_checkpoint_config(tmp_path / "missing.ckpt")
+
+        assert config == DEFAULT_CONFIG
+
+
+class TestWandbLogger:
+    """Tests for Weights & Biases logger setup."""
+
+    def test_returns_none_when_disabled(self):
+        """No logger is built when wandb is not enabled."""
+        config = {"wandb": {"enabled": False}, "model_name": "m"}
+
+        assert _model_ops._setup_logger(config, MagicMock()) is None
+
+    def test_returns_none_when_absent(self):
+        """A config with no wandb block does not log."""
+        assert _model_ops._setup_logger({"model_name": "m"}, MagicMock()) is None
+
+    def test_run_is_named_after_the_model(self):
+        """Runs are named so a set of variants is distinguishable."""
+        config = {
+            "wandb": {"enabled": True, "project_name": "proj"},
+            "model_name": "shift-variant",
+            "epochs": 3,
+        }
+
+        with patch("lightning.pytorch.loggers.WandbLogger") as mock_logger:
+            _model_ops._setup_logger(config, MagicMock())
+
+        assert mock_logger.call_args.kwargs["name"] == "shift-variant"
+        assert mock_logger.call_args.kwargs["project"] == "proj"
+
+    def test_explicit_run_name_wins(self):
+        """An explicit run name overrides the model name."""
+        config = {
+            "wandb": {"enabled": True, "name": "explicit"},
+            "model_name": "shift-variant",
+        }
+
+        with patch("lightning.pytorch.loggers.WandbLogger") as mock_logger:
+            _model_ops._setup_logger(config, MagicMock())
+
+        assert mock_logger.call_args.kwargs["name"] == "explicit"
+
+    def test_config_is_logged_without_the_wandb_block(self):
+        """The training config is recorded with the run, so runs compare."""
+        config = {
+            "wandb": {"enabled": True, "project_name": "proj"},
+            "model_name": "m",
+            "epochs": 3,
+            "Global_features": 72,
+        }
+
+        with patch("lightning.pytorch.loggers.WandbLogger") as mock_logger:
+            _model_ops._setup_logger(config, MagicMock())
+
+        logged = mock_logger.return_value.experiment.config.update.call_args.args[0]
+        assert logged["epochs"] == 3
+        assert logged["Global_features"] == 72
+        assert "wandb" not in logged
