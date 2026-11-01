@@ -46,6 +46,10 @@ from im2deep._io_helpers import (
     setup_logging,
     write_output,
 )
+from im2deep.constants import DEFAULT_MODEL, MALDI_MODEL
+
+#: Bundled single-conformer checkpoints selectable with --model-name.
+MODELS = {"tims": DEFAULT_MODEL, "maldi": MALDI_MODEL}
 
 console = Console()
 LOGGER = logging.getLogger(__name__)
@@ -119,9 +123,11 @@ def cli(ctx, logging_level, profile, profile_name):
 @click.option(
     "-m",
     "--model-name",
-    type=click.Choice(["tims"], case_sensitive=False),
+    type=click.Choice(list(MODELS), case_sensitive=False),
     default="tims",
-    help="Neural network model to use for prediction. Currently only 'tims' is supported.",
+    help="Bundled model to use for prediction. 'tims' is the default model; 'maldi' is "
+    "trained on more long (12-20 AA) charge 1 peptides, for MALDI-TIMS. 'maldi' has no "
+    "multi-conformer variant.",
 )
 @click.option(
     "-e",
@@ -214,6 +220,11 @@ def _run_predict(*args, **kwargs):
         f"ion_mobility={kwargs.get('ion_mobility')}"
     )
 
+    model_name = kwargs.pop("model_name", "tims").lower()
+    if model_name != "tims" and kwargs.get("multi", False):
+        raise click.UsageError(f"--model-name {model_name} cannot be combined with --multi.")
+    model = MODELS[model_name]
+
     # Parse input files
     LOGGER.info("Parsing input files...")
     psm_list = parse_input(Path(kwargs["precursors"]))
@@ -223,12 +234,15 @@ def _run_predict(*args, **kwargs):
     if kwargs.get("calibration_precursors"):
         LOGGER.info("Calibration file provided, performing calibration and prediction...")
         psm_list_cal = parse_input(Path(kwargs["calibration_precursors"]))
-        predictions = core.predict_and_calibrate(psm_list, psm_list_cal, *args, **kwargs)
+        predictions = core.predict_and_calibrate(
+            psm_list, psm_list_cal, *args, model=None if kwargs.get("multi") else model, **kwargs
+        )
     else:
         LOGGER.info(
             "No calibration file provided (calibration is HIGHLY recommended), performing prediction only..."
         )
-        predictions = core.predict(psm_list, multi=kwargs.get("multi", False))
+        multi = kwargs.get("multi", False)
+        predictions = core.predict(psm_list, model=None if multi else model, multi=multi)
 
     # Output results
     LOGGER.info("IM2Deep CCS prediction completed successfully!")

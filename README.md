@@ -51,6 +51,17 @@ To use the multi-output prediction model (requires optional dependencies):
 im2deep <path/to/peptide_file.csv> --calibration-precursors <path/to/calibration_file.csv> --multi
 ```
 
+**MALDI model:**
+MALDI ions are mostly singly charged, including long peptides that ESI rarely yields as
+charge 1. `--model-name maldi` selects a model trained on a set with more of these
+(12-20 amino acids, charge 1). It is trained on ESI timsTOF data and has not been
+validated on MALDI-TIMS measurements. It is calibrated the same way as the default model:
+```bash
+im2deep <path/to/peptide_file.csv> --calibration-precursors <path/to/calibration_file.csv> --model-name maldi
+```
+In Python, pass `model=im2deep.constants.MALDI_MODEL` to `predict()` or
+`predict_and_calibrate()`.
+
 **Output options:**
 ```bash
 im2deep <path/to/peptide_file.csv> --output-file predictions.csv

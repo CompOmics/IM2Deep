@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **MALDI model.** `models/TIMS/IM2DeepMALDI.ckpt` (`constants.MALDI_MODEL`, CLI
+  `--model-name maldi`) is bundled next to the default model. It has the default model's
+  architecture and training config, but its 5.06M-precursor training set adds ProteomeTools
+  HLA, AspN and LysN pools and HLA-II peptides acquired without the charge 1 exclusion,
+  for more long charge 1 ions: 4,816 / 676 / 40 charge 1 precursors of 12-13 / 14-15 /
+  16-20 amino acids, up from 2,654 / 221 / 15. On 276 held-out long charge 1 sequences
+  the calibrated MAE falls from 8.27 to 4.18 Å² (charge 1 alone: 8.89 to 4.34). On the
+  default model's held-out set it is slightly worse, 6.28 against 6.14 Å² (charge 1:
+  4.00 against 3.72), so it does not replace the default. Its training data is ESI
+  timsTOF data; it has not been validated on MALDI-TIMS measurements. It shares
+  `reference_ccs_2026.csv.gz`, whose per-charge offset to its predictions is within
+  2.6 Å². It has no multi-conformer variant
 - `core.train()` and `core.finetune()`, replacing the `NotImplementedError` stub that
   pointed at the separate `im2deeptrainer` package. Both featurise through
   `DeepLCDataset`, the same path `predict()` uses, so a trained checkpoint is directly

@@ -1,10 +1,10 @@
 """
-Tests pinning the bundled single-conformer model to its calibration reference.
+Tests pinning the bundled single-conformer models to their calibration reference.
 
 IM2Deep's per-charge shift is ``observed_CCS - reference_CCS`` over peptidoforms
 shared with the reference, so the reference only calibrates a model correctly if
-it sits on that model's own CCS scale. The two files are replaced together; these
-tests fail if one is swapped without the other.
+it sits on that model's own CCS scale. The default and MALDI models share one
+reference; these tests fail if a model is swapped onto a different scale.
 """
 
 import numpy as np
@@ -14,10 +14,15 @@ from psm_utils import PSM, Peptidoform, PSMList
 from im2deep import core
 from im2deep._model_ops import read_checkpoint_config
 from im2deep.calibration import get_default_reference
-from im2deep.constants import DEFAULT_MODEL
+from im2deep.constants import DEFAULT_MODEL, MALDI_MODEL
 
 #: Charges with enough reference rows to sample from in a unit test.
 CHARGES = (1, 2, 3, 4)
+
+#: Every bundled single-conformer checkpoint.
+BUNDLED_MODELS = pytest.mark.parametrize(
+    "model", [DEFAULT_MODEL, MALDI_MODEL], ids=["tims", "maldi"]
+)
 
 
 def _psm_list(peptidoforms, ccs=None):
@@ -39,10 +44,11 @@ def reference():
 
 
 class TestBundledModelConfig:
-    """The checkpoint records the architecture and featurisation it was trained with."""
+    """The checkpoints record the architecture and featurisation they were trained with."""
 
-    def test_records_transformer_architecture_and_featurisation(self):
-        config = read_checkpoint_config(DEFAULT_MODEL)
+    @BUNDLED_MODELS
+    def test_records_transformer_architecture_and_featurisation(self, model):
+        config = read_checkpoint_config(model)
 
         assert config["use_transformer_trunk"] is True
         assert config["standardize_target"] is True
@@ -52,9 +58,10 @@ class TestBundledModelConfig:
         assert config["legacy_positional_deltas"] is False
         assert config["Global_features"] == 72
 
-    def test_carries_no_training_run_state(self):
+    @BUNDLED_MODELS
+    def test_carries_no_training_run_state(self, model):
         """``finetune`` copies the backbone's config, so it must not hold run-specific keys."""
-        config = read_checkpoint_config(DEFAULT_MODEL)
+        config = read_checkpoint_config(model)
 
         assert config["wandb"]["enabled"] is False
         assert config["num_workers"] == 0
@@ -77,9 +84,10 @@ class TestDefaultReference:
 
     @pytest.mark.integration
     @pytest.mark.slow
-    def test_sits_on_the_default_models_scale(self, reference):
+    @BUNDLED_MODELS
+    def test_sits_on_the_bundled_models_scale(self, reference, model):
         """
-        The model's raw predictions agree with the reference per charge.
+        Each bundled model's raw predictions agree with the reference per charge.
 
         Calibrating against the previous reference, which sat ~3.7% below this
         model's scale (+14 to +25 A^2 by charge), would fail here.
@@ -87,7 +95,7 @@ class TestDefaultReference:
         charges = reference["peptidoform"].str.rsplit("/", n=1).str[1].astype(int)
         for charge in CHARGES:
             sample = reference[charges == charge].sample(150, random_state=0)
-            predicted = core.predict(_psm_list(sample["peptidoform"]))
+            predicted = core.predict(_psm_list(sample["peptidoform"]), model=model)
 
             offset = float(np.mean(sample["CCS"].to_numpy() - predicted))
             assert abs(offset) < 4.0, f"z={charge}: reference - prediction = {offset:.2f} A^2"

@@ -3,6 +3,11 @@ from pathlib import Path
 # Paths and names for default models and reference datasets
 DEFAULT_MODEL_NAME = "IM2DeepUni.ckpt"
 DEFAULT_MODEL = Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MODEL_NAME
+# MALDI model: the default model's architecture, trained on a collated set with more long
+# (12-20 AA) charge 1 peptides, which MALDI yields and ESI rarely does. Its training data is
+# still ESI timsTOF data. It shares the default calibration reference, which sits on its scale.
+MALDI_MODEL_NAME = "IM2DeepMALDI.ckpt"
+MALDI_MODEL = Path(__file__).resolve().parent / "models" / "TIMS" / MALDI_MODEL_NAME
 DEFAULT_MULTI_MODEL_NAME = "IM2DeepMulti.ckpt"
 DEFAULT_MULTI_MODEL = (
     Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MULTI_MODEL_NAME
