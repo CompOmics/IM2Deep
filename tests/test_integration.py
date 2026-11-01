@@ -435,6 +435,267 @@ class TestTrainingRoundTrip:
 
     @pytest.mark.integration
     @pytest.mark.slow
+    def test_standardization_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        The step 8.2 recipe bundle (standardisation, AdamW weight decay,
+        OneCycleLR, precision) trains and predicts without error, and the
+        checkpoint records non-default (i.e. actually fitted, not left at
+        their 0/1 no-op) scaler buffers.
+        """
+        import torch
+
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "standardized.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                standardize_global_features=True,
+                standardize_target=True,
+                weight_decay=0.01,
+                lr_scheduler="one_cycle",
+                precision="32-true",  # bf16-mixed needs a real accelerator
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+        # A sanity range, not a tight bound: this only catches a scaler
+        # applied in the wrong direction or units, which would put
+        # predictions wildly outside plausible CCS territory.
+        assert np.all((predictions > 50) & (predictions < 5000))
+
+        state_dict = torch.load(checkpoint, weights_only=False, map_location="cpu")["state_dict"]
+        assert not torch.allclose(state_dict["global_feat_std"], torch.ones_like(state_dict["global_feat_std"]))
+        assert state_dict["target_std"].item() != pytest.approx(1.0)
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_swa_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        SWA trains and predicts without error, and the saved checkpoint is
+        the final weight-averaged model, not a reloaded best-epoch snapshot.
+
+        IM2Deep has no BatchNorm layers, so Lightning's SWA callback
+        transfers its averaged weights into the model in ``on_train_end`` -
+        after the last validation epoch. ``ModelCheckpoint`` never sees the
+        averaged weights, so reloading its "best" checkpoint would silently
+        throw the averaging away; ``_model_ops.train`` must skip that reload
+        and use the post-fit model directly whenever SWA is enabled.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "swa.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                epochs=6, swa=True, swa_epoch_start=0.5, swa_annealing_epochs=1
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_sibling_loss_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        Step 8.3's sibling delta loss trains and predicts without error.
+
+        Exercises the full path end to end: _model_ops.train computing
+        group ids from the real peptidoforms, wrapping the training dataset,
+        building SiblingPairBatchSampler batches, and IM2Deep.training_step
+        popping (group_id, mz) off the batch and adding the delta term -
+        not just each piece in isolation, the way test_model_ops.py's and
+        test_architectures.py's unit tests do.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "sibling.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                batch_size=16, sibling_loss_weight=1.0, sibling_pairs_per_batch=4
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_ranking_loss_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        Step 8.3's pairwise ranking loss trains and predicts without error.
+
+        Unlike the sibling loss, this needs no special batch sampler -
+        m/z-close pairs are already common in a random batch - so this
+        exercises the plain-shuffle path with the pair-augmented dataset
+        instead of SiblingPairBatchSampler.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "ranking.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                ranking_loss_weight=1.0, ranking_mz_window=50.0
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_flex_trunk_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        Step 8.4 items 8+9's fused trunk trains and predicts without error.
+
+        Exercises the real featurisation path end to end - DeepLC's actual
+        one-hot matrix feeding FlexTrunk's residue-index/masking logic, not
+        a hand-built one-hot tensor the way test_architectures.py's unit
+        tests use - plus composing with charge_film, which item 8's own
+        text says should still work (only use_one_hot/use_attention_pooling
+        become moot, not use_charge_embedding).
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "flex_trunk.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                use_flex_trunk=True,
+                flex_trunk_channels=[8, 8],
+                flex_trunk_stem_channels=4,
+                use_charge_embedding=True,
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_transformer_trunk_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        Step 8.4 item 3's transformer trunk trains and predicts without
+        error, through real DeepLC featurisation (not a hand-built atom_comp
+        tensor the way test_architectures.py's unit tests use), and composes
+        with charge_film - technically compatible even though the register
+        token is meant to make FiLM redundant, not required to be absent.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "transformer_trunk.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                use_transformer_trunk=True,
+                transformer_d_model=16,
+                transformer_num_layers=2,
+                transformer_num_heads=2,
+                transformer_ffn_dim=32,
+                use_charge_embedding=True,
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_heteroscedastic_head_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        Step 8.5's heteroscedastic head trains and predicts without error,
+        with a 1-epoch mu warm-start (of the fixture's 3 total epochs) so
+        the L1-warmup -> Laplace-NLL phase transition is exercised end to
+        end, not just checked in isolation via _in_heteroscedastic_warmup.
+
+        core.predict()'s public shape/contract must stay unchanged (a plain
+        CCS array, the uncertainty output b discarded), so this is the check
+        that a real caller of the public API sees no difference at all,
+        not just that training_step's internals are correct in isolation.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "heteroscedastic.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                use_heteroscedastic_head=True, heteroscedastic_warmup_epochs=1
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_per_charge_heads_recipe_round_trips(self, sample_training_df, tmp_path):
+        """
+        Step 8.6 item 1's per-charge output heads train and predict without
+        error, through real DeepLC featurisation and the real charge values
+        parsed from sample_training_df (charges 2 and 3), composed with the
+        heteroscedastic head to exercise both selection paths (mu and b)
+        through the real core.train/core.predict pipeline, not just the
+        hand-crafted-weight unit tests in test_architectures.py.
+        """
+        from im2deep._io_helpers import parse_input
+
+        checkpoint = tmp_path / "per_charge_heads.ckpt"
+        core.train(
+            sample_training_df,
+            checkpoint,
+            training_kwargs=self._training_kwargs(
+                use_per_charge_heads=True, use_heteroscedastic_head=True
+            ),
+            output_dir=tmp_path,
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        predictions = core.predict(psm_list, model=checkpoint)
+
+        assert predictions.shape == (len(sample_training_df),)
+        assert np.all(np.isfinite(predictions))
+
+    @pytest.mark.integration
+    @pytest.mark.slow
     def test_finetune_from_bundled_model(self, sample_training_df, tmp_path):
         """Fine-tuning the bundled model produces a usable checkpoint."""
         from im2deep._io_helpers import parse_input
@@ -455,13 +716,80 @@ class TestTrainingRoundTrip:
 
     @pytest.mark.integration
     @pytest.mark.slow
+    def test_finetune_transformer_backbone_keeps_its_scalers(self, sample_training_df, tmp_path):
+        """
+        Fine-tuning a standardised transformer-trunk model with a learning rate
+        of 0 reproduces the backbone's predictions: the transfer model applies
+        the backbone's trunk and scalers, and training does not refit them.
+        """
+        from im2deep._io_helpers import parse_input
+
+        backbone = tmp_path / "transformer.ckpt"
+        core.train(
+            sample_training_df,
+            backbone,
+            training_kwargs=self._training_kwargs(
+                epochs=1,
+                use_transformer_trunk=True,
+                standardize_target=True,
+                standardize_global_features=True,
+            ),
+            output_dir=tmp_path / "backbone",
+        )
+        finetuned = tmp_path / "finetuned.ckpt"
+        core.finetune(
+            sample_training_df,
+            finetuned,
+            model=backbone,
+            training_kwargs=self._training_kwargs(
+                epochs=1, freeze_epochs=0, learning_rate=0.0, L1_alpha=0.0
+            ),
+            output_dir=tmp_path / "finetune",
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        before = core.predict(psm_list, model=backbone)
+        after = core.predict(psm_list, model=finetuned)
+
+        assert np.allclose(after, before, atol=1e-3)
+
+    @pytest.mark.integration
+    @pytest.mark.slow
+    def test_finetune_from_the_bundled_model(self, sample_training_df, tmp_path):
+        """
+        ``finetune`` with no ``--backbone`` adapts the bundled transformer model.
+
+        A learning rate of 0 must reproduce the bundled model's predictions: the
+        transfer model applies the backbone's trunk, charge register token and
+        both standardisation scalers, and training neither refits nor reloads them.
+        """
+        from im2deep._io_helpers import parse_input
+
+        finetuned = tmp_path / "finetuned.ckpt"
+        core.finetune(
+            sample_training_df,
+            finetuned,
+            training_kwargs=self._training_kwargs(
+                epochs=1, freeze_epochs=0, learning_rate=0.0, L1_alpha=0.0, swa=False
+            ),
+            output_dir=tmp_path / "finetune",
+        )
+
+        psm_list = parse_input(sample_training_df[["seq", "modifications", "charge"]])
+        before = core.predict(psm_list)
+        after = core.predict(psm_list, model=finetuned)
+
+        assert np.allclose(after, before, atol=1e-3)
+
+    @pytest.mark.integration
+    @pytest.mark.slow
     def test_bundled_model_still_predicts(self, sample_psm_list):
         """
-        The bundled checkpoint still loads and predicts after the DeepLC bump.
+        The bundled checkpoint loads and predicts.
 
-        DeepLC 4.1.0 defaults ``legacy_positional_deltas`` to True, reproducing
-        the encoding the bundled checkpoints were trained with, so this must
-        keep working unchanged.
+        It records its own architecture and featurisation (transformer trunk, 72
+        global features, DeepLC's corrected positional deltas), which ``predict``
+        reads back rather than assuming the package defaults.
         """
         predictions = core.predict(sample_psm_list)
 

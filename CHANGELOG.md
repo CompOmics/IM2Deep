@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **MALDI model.** `models/TIMS/IM2DeepMALDI.ckpt` (`constants.MALDI_MODEL`, CLI
+  `--model-name maldi`) is bundled next to the default model. It has the default model's
+  architecture and training config, but its 5.06M-precursor training set adds ProteomeTools
+  HLA, AspN and LysN pools and HLA-II peptides acquired without the charge 1 exclusion,
+  for more long charge 1 ions: 4,816 / 676 / 40 charge 1 precursors of 12-13 / 14-15 /
+  16-20 amino acids, up from 2,654 / 221 / 15. On 276 held-out long charge 1 sequences
+  the calibrated MAE falls from 8.27 to 4.18 Å² (charge 1 alone: 8.89 to 4.34). On the
+  default model's held-out set it is slightly worse, 6.28 against 6.14 Å² (charge 1:
+  4.00 against 3.72), so it does not replace the default. Its training data is ESI
+  timsTOF data; it has not been validated on MALDI-TIMS measurements. It shares
+  `reference_ccs_2026.csv.gz`, whose per-charge offset to its predictions is within
+  2.6 Å². It has no multi-conformer variant
 - `core.train()` and `core.finetune()`, replacing the `NotImplementedError` stub that
   pointed at the separate `im2deeptrainer` package. Both featurise through
   `DeepLCDataset`, the same path `predict()` uses, so a trained checkpoint is directly
@@ -31,8 +43,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only in training data or featurisation is comparable. `--wandb`, `--wandb-project` and
   `--wandb-name` on both CLI commands; `entity` and `tags` are settable from a config
   file
+- Transformer trunk (`use_transformer_trunk`) in place of the convolutional atom/diatom
+  branches: a learned charge embedding prepended to the sequence as a register token
+  that every residue attends to, pre-norm self-attention blocks with a learned
+  relative-distance and terminus-proximity attention bias, and learned-query attention
+  pooling (`transformer_*` keys). This is the architecture of the new bundled model
+- Training options used by the new model: `standardize_global_features` and
+  `standardize_target` (the fitted statistics are stored in the checkpoint),
+  `swa` (stochastic weight averaging), `lr_scheduler="one_cycle"`, `weight_decay`,
+  `precision`. Also available, off by default: `use_charge_embedding`, `use_flex_trunk`,
+  `use_attention_pooling`, `use_per_charge_heads`, `use_heteroscedastic_head`,
+  `charge_balanced_sampling`, `mixup_alpha`, `sibling_loss_weight`,
+  `ranking_loss_weight`, `loss` (`"l1"`, `"mape"` or `"huber"`)
+- `RegressionCCSCalibration`, a per-charge slope and intercept calibration for models
+  whose training labels were harmonised with a regression rather than a shift. Both
+  calibrations expose `stats_for_charge()` (anchor count, whether the charge fell back
+  to the all-charge fit, residual spread) for judging how far to trust a run's
+  calibrated CCS
+- `scikit-learn` dependency, used by `RegressionCCSCalibration`
 
 ### Changed
+- **New default single-conformer model.** `models/TIMS/IM2DeepUni.ckpt` is replaced by
+  a 4-layer transformer (1.05M parameters) trained on a 4.83M-precursor collated set,
+  up from 1.12M, whose cross-run CCS values are calibrated per charge. On the same
+  477,896-row held-out set the calibrated MAE falls from 8.92 to 6.16 Å²
+  (−30.9%), and on four unseen diaPASEF studies DIA-NN gains more precursors
+  and protein groups than with either the old model or its own predicted ion
+  mobility. The checkpoint records its own architecture and featurisation (72 global
+  features, DeepLC's corrected positional deltas), which `predict()` and `finetune()`
+  read back. Inference is slower per precursor: 1.28× on 16 CPU cores, 1.07× on
+  one GPU
+- **New default calibration reference.** `reference_data/reference_ccs_2026.csv.gz` replaces
+  `reference_ccs.csv.gz` as the default (`DEFAULT_REFERENCE_DATASET_PATH`). It holds
+  1,054,960 precursors sampled from the new model's training set. The two change together
+  and have to: calibration shifts are `observed CCS - reference CCS`, which only holds when
+  the reference is on the model's CCS scale, and the old reference sits 14-25 Å²
+  (about 3.7%) below it. On the same held-out set the new model's calibrated MAE is
+  6.16 Å² against the new reference but 18.09 Å² against the old one,
+  worse than the previous model's 8.97. If you calibrate another model against the default
+  reference, pass a reference on that model's scale instead
+- The new reference writes modifications as UNIMOD accessions (`[UNIMOD:4]`) rather than
+  names (`[Carbamidomethyl]`). Calibration matches peptidoforms on their ProForma string,
+  so calibration PSMs carrying modification names no longer match the 29% of the reference
+  that is modified; unmodified peptides match in either notation
+- `predict()` now defaults to a GPU when one is available instead of always using the CPU
+- Early stopping is now off by default for `core.train()` (`patience` is `None`), as it
+  was found to fire prematurely. Set `patience` to opt back in. The `normal`, `xavier`
+  and `kaiming` weight initialisers now use explicit parameters (`std=0.05`, `gain=1`,
+  the configured LeakyReLU slope) instead of PyTorch's defaults
 - Widened the `deeplc` dependency to `>=4.1.0,<5`. From 4.1.0 the 4.0.1 feature-encoding
   change sits behind `legacy_positional_deltas`, which defaults to `True`, so the
   encoding matches what the bundled checkpoints were trained with. Verified
@@ -44,6 +102,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   undeclared import
 
 ### Fixed
+- `finetune()` raised `AttributeError` on a transformer-trunk (or FlexTrunk) backbone,
+  which the new bundled model is. The transfer model now delegates to the backbone, so
+  the trunk, the charge register token and both standardisation scalers are applied and
+  stay fixed, and `BackboneFreeze` covers the trunk
+- The Weights & Biases `Best Val MAE` log call no longer fails on non-zero ranks under
+  multi-device training
 - `IM2DeepTransfer`'s training, validation and test steps did not squeeze the model
   output in the `add_X_mol` branch, so the loss broadcast to a `(batch, batch)` matrix
   instead of comparing element-wise

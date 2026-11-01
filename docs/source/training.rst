@@ -69,7 +69,9 @@ sit on a systematically different CCS scale than the training data:
 The pretrained feature branches are held frozen for the first ``--freeze-epochs``
 epochs while the head adapts, then unfrozen and training continues at a reduced
 learning rate. By default the bundled IM2Deep model is the backbone; pass
-``--backbone`` to use another checkpoint.
+``--backbone`` to use another checkpoint. The backbone's architecture and
+featurisation are read from the checkpoint, and its feature standardisation stays
+fixed while you fine-tune.
 
 Configuration
 -------------
@@ -129,9 +131,11 @@ to start otherwise rather than failing later with a shape error.
      - 72
 
 ``legacy_positional_deltas`` controls positional modification indexing. It
-defaults to ``true``, reproducing the encoding the bundled models were trained
-with. Setting it to ``false`` uses DeepLC's corrected indexing, which changes the
-encoding of modified peptides only.
+defaults to ``true``, reproducing the encoding the bundled multi-conformer models
+were trained with. Setting it to ``false`` uses DeepLC's corrected indexing, which
+changes the encoding of modified peptides only. The bundled single-conformer model
+was trained with ``false`` and 72 global features (``add_terminal_composition``).
+It records this, so ``predict`` and ``finetune`` pick it up without any settings.
 
 Each trained checkpoint records the configuration it was trained with, so
 :func:`im2deep.core.predict` reads a model back with the right architecture and

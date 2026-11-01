@@ -3,12 +3,20 @@ from pathlib import Path
 # Paths and names for default models and reference datasets
 DEFAULT_MODEL_NAME = "IM2DeepUni.ckpt"
 DEFAULT_MODEL = Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MODEL_NAME
+# MALDI model: the default model's architecture, trained on a collated set with more long
+# (12-20 AA) charge 1 peptides, which MALDI yields and ESI rarely does. Its training data is
+# still ESI timsTOF data. It shares the default calibration reference, which sits on its scale.
+MALDI_MODEL_NAME = "IM2DeepMALDI.ckpt"
+MALDI_MODEL = Path(__file__).resolve().parent / "models" / "TIMS" / MALDI_MODEL_NAME
 DEFAULT_MULTI_MODEL_NAME = "IM2DeepMulti.ckpt"
 DEFAULT_MULTI_MODEL = (
     Path(__file__).resolve().parent / "models" / "TIMS" / DEFAULT_MULTI_MODEL_NAME
 )
+# Calibration reference for the default model: its CCS values sit on that model's scale,
+# which is what the per-charge shift needs. The two are replaced together, so a new default
+# model means a new reference file.
 DEFAULT_REFERENCE_DATASET_PATH = (
-    Path(__file__).resolve().parent / "reference_data" / "reference_ccs.csv.gz"
+    Path(__file__).resolve().parent / "reference_data" / "reference_ccs_2026.csv.gz"
 )
 DEFAULT_MULTI_REFERENCE_DATASET_PATH = (
     Path(__file__).parent / "reference_data" / "multi_reference_ccs.csv.gz"
@@ -98,27 +106,56 @@ DEFAULT_TRAINING_CONFIG = {
     "model_name": "IM2Deep",
     # Training loop
     "epochs": 100,
-    "patience": 10,
+    # None disables `EarlyStopping`, so
+    # set `patience` to a number of epochs to opt back into stopping early instead.
+    "patience": None,
     "use_best_model": True,
-    # "Validation MAE" is the metric name `LogLowestMAE` reads and the one the
-    # bundled IM2DeepUni.ckpt's own ModelCheckpoint monitored; changing it
-    # means changing both.
     "monitor": "Validation MAE",
     "mode": "min",
     "num_workers": 0,
     "accelerator": "auto",
     "devices": "auto",
     "wandb": {"enabled": False, "project_name": "IM2Deep"},
-    # Featurisation. These are recorded in the checkpoint so `predict()` reads
-    # a model back with the encoding it was trained on.
     "add_ccs_features": True,
     "add_terminal_composition": False,
-    # DeepLC 4.1.0 defaults this to True, reproducing the pre-4.0.1 positional
-    # modification indexing the bundled checkpoints were trained with. Set to
-    # False to train against the 4.0.1 fix instead.
     "legacy_positional_deltas": True,
     "padding_length": 60,
     "Global_features": DEFAULT_GLOBAL_FEATURES,
+    "standardize_global_features": False,
+    "standardize_target": False,
+    "weight_decay": 0.0,
+    "lr_scheduler": None,  # "one_cycle" is the only implemented option so far
+    "precision": "32-true",
+    "swa": False,
+    "loss": "l1",
+    "use_charge_embedding": False,
+    "charge_balanced_sampling": False,
+    "use_one_hot": True,
+    "use_attention_pooling": False,
+    "mixup_alpha": 0.0,
+    "sibling_loss_weight": 0.0,
+    "sibling_pairs_per_batch": 64,
+    "ranking_loss_weight": 0.0,
+    "ranking_mz_window": 3.0,
+    "ranking_margin": 0.0,
+    "use_flex_trunk": False,
+    "flex_trunk_embed_dim": 16,
+    "flex_trunk_channels": [192, 192],
+    "flex_trunk_kernel_size": 5,
+    "flex_trunk_stem_channels": 64,
+    "flex_trunk_stem_layers": 2,
+    "use_transformer_trunk": False,
+    "transformer_d_model": 128,
+    "transformer_num_layers": 4,
+    "transformer_num_heads": 4,
+    "transformer_ffn_dim": 512,
+    "transformer_max_relative_distance": 32,
+    "transformer_max_terminus_distance": 16,
+    "transformer_readout_queries": 1,
+    "transformer_dropout": 0.0,
+    "use_heteroscedastic_head": False,
+    "heteroscedastic_warmup_epochs": 0,
+    "use_per_charge_heads": False,
 }
 
 BASEMODELCONFIG = {

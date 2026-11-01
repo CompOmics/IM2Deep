@@ -140,6 +140,29 @@ class TestCLI:
         # Check that multi flag is recognized
         assert result.exit_code in [0, 1]
 
+    @patch("im2deep.__main__.write_output")
+    @patch("im2deep.__main__.parse_input")
+    @patch("im2deep.core.predict")
+    def test_predict_maldi_model(
+        self, mock_predict, mock_parse, mock_write, runner, temp_input_file
+    ):
+        """--model-name maldi predicts with the bundled MALDI checkpoint."""
+        from im2deep.constants import MALDI_MODEL
+
+        result = runner.invoke(cli, ["predict", str(temp_input_file), "--model-name", "maldi"])
+
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args.kwargs["model"] == MALDI_MODEL
+
+    def test_predict_maldi_model_rejects_multi(self, runner, temp_input_file):
+        """The MALDI model has no multi-conformer variant."""
+        result = runner.invoke(
+            cli, ["predict", str(temp_input_file), "--model-name", "maldi", "--multi"]
+        )
+
+        assert result.exit_code != 0
+        assert "cannot be combined with --multi" in result.output
+
     @patch("im2deep.core.predict_and_calibrate")
     def test_predict_per_charge_calibration(
         self, mock_predict, runner, temp_input_file, temp_cal_file

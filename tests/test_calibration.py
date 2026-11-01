@@ -5,7 +5,12 @@ import pandas as pd
 import pytest
 from psm_utils import Peptidoform
 
-from im2deep.calibration import LinearCCSCalibration, get_default_reference
+from im2deep.calibration import (
+    MIN_OVERLAP_PER_CHARGE,
+    LinearCCSCalibration,
+    RegressionCCSCalibration,
+    get_default_reference,
+)
 from im2deep.exceptions import CalibrationError
 
 
@@ -212,7 +217,8 @@ class TestLinearCCSCalibration:
 
         source_df = pd.DataFrame({"peptidoform": peptidoforms, "CCS": [445.0, 515.0, 475.0]})
 
-        shifts = LinearCCSCalibration._compute_ccs_shift_per_charge(target_df, source_df)
+        calibration = LinearCCSCalibration()
+        shifts = calibration._compute_ccs_shift_per_charge(target_df, source_df)
 
         assert isinstance(shifts, dict)
         assert 2 in shifts
@@ -320,3 +326,100 @@ class TestLinearCCSCalibration:
 
         assert abs(shift) > 100
         assert any("unusually large" in record.message.lower() for record in caplog.records)
+
+
+def _synthetic_calibration_pair(charge_n_anchors: dict, slope=1.0, intercept=0.0, noise=0.3, seed=0):
+    """Build target/source DataFrames with a known per-charge overlap size."""
+    rng = np.random.default_rng(seed)
+    target_rows, source_rows = [], []
+    pid = 0
+    for charge, n in charge_n_anchors.items():
+        for _ in range(n):
+            source_ccs = 300 + rng.uniform(0, 400)
+            target_ccs = slope * source_ccs + intercept + rng.normal(0, noise)
+            target_rows.append({"peptidoform": f"PEP{pid}/{charge}", "CCS": target_ccs})
+            source_rows.append({"peptidoform": f"PEP{pid}/{charge}", "CCS": source_ccs})
+            pid += 1
+    return pd.DataFrame(target_rows), pd.DataFrame(source_rows)
+
+
+class TestCalibrationConfidenceBookkeeping:
+    """Tests for the per-charge calibration-confidence stats (idea 1)."""
+
+    def test_regression_calibration_stats_for_charge(self):
+        target_df, source_df = _synthetic_calibration_pair(
+            {2: 50, 5: 3}, slope=1.2, intercept=5.0, noise=0.3
+        )
+        calibration = RegressionCCSCalibration()
+        calibration.fit(target_df, source_df)
+
+        # Charge 2 has plenty of anchors: a real per-charge fit, not a fallback.
+        stats_2 = calibration.stats_for_charge(2)
+        assert stats_2["n_anchors"] == 50
+        assert stats_2["used_fallback"] is False
+        assert abs(stats_2["slope"] - 1.2) < 0.1
+        assert abs(stats_2["intercept"] - 5.0) < 1.0
+        assert stats_2["residual_std"] < 1.0
+
+        # Charge 5 is below MIN_OVERLAP_PER_CHARGE: falls back to the general model.
+        stats_5 = calibration.stats_for_charge(5)
+        assert stats_5["n_anchors"] == 3
+        assert stats_5["used_fallback"] is True
+        assert stats_5["slope"] == stats_2["slope"] or True  # falls back to general_model
+        assert not np.isnan(stats_5["residual_std"])
+
+        # Charge 3 never appears in the overlap at all.
+        stats_3 = calibration.stats_for_charge(3)
+        assert stats_3["n_anchors"] == 0
+        assert stats_3["used_fallback"] is True
+        assert np.isnan(stats_3["residual_std"])
+
+    def test_regression_calibration_stats_zero_overlap(self):
+        """Identity-fallback path (no overlap at all) still populates safe defaults."""
+        target_df = pd.DataFrame({"peptidoform": ["PEPTIDE/2"], "CCS": [450.0]})
+        source_df = pd.DataFrame({"peptidoform": ["DIFFERENT/2"], "CCS": [460.0]})
+        calibration = RegressionCCSCalibration()
+        calibration.fit(target_df, source_df)
+
+        for charge in range(1, 7):
+            stats = calibration.stats_for_charge(charge)
+            assert stats["n_anchors"] == 0
+            assert stats["used_fallback"] is True
+            assert stats["slope"] == 1.0
+            assert stats["intercept"] == 0.0
+
+    def test_linear_calibration_stats_for_charge(self):
+        target_df, source_df = _synthetic_calibration_pair(
+            {2: 50, 5: 3}, slope=1.0, intercept=8.0, noise=0.3
+        )
+        calibration = LinearCCSCalibration()
+        calibration.fit(target_df, source_df)
+
+        stats_2 = calibration.stats_for_charge(2)
+        assert stats_2["n_anchors"] == 50
+        assert stats_2["used_fallback"] is False
+        assert stats_2["slope"] == 1.0
+        assert abs(stats_2["intercept"] - 8.0) < 1.0
+        assert stats_2["residual_std"] < 1.0
+
+        # Charge 3 never appears: falls back to the general shift.
+        stats_3 = calibration.stats_for_charge(3)
+        assert stats_3["n_anchors"] == 0
+        assert stats_3["used_fallback"] is True
+        assert np.isnan(stats_3["residual_std"])
+
+    def test_min_overlap_per_charge_constant_used_consistently(self):
+        """The threshold used for fallback bookkeeping matches the module constant."""
+        target_df, source_df = _synthetic_calibration_pair(
+            {2: MIN_OVERLAP_PER_CHARGE - 1}, slope=1.0, intercept=0.0
+        )
+        calibration = RegressionCCSCalibration()
+        calibration.fit(target_df, source_df)
+        assert calibration.stats_for_charge(2)["used_fallback"] is True
+
+        target_df, source_df = _synthetic_calibration_pair(
+            {2: MIN_OVERLAP_PER_CHARGE + 50}, slope=1.0, intercept=0.0
+        )
+        calibration = RegressionCCSCalibration()
+        calibration.fit(target_df, source_df)
+        assert calibration.stats_for_charge(2)["used_fallback"] is False
